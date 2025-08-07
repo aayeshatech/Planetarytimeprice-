@@ -1,4 +1,4 @@
-skyfield
-pytz
-pandas
 streamlit
+flatlib
+pytz
+reportlab
