@@ -1,79 +1,78 @@
 import streamlit as st
+from skyfield.api import load, Topos
 from datetime import datetime
-import swisseph as swe
+import pandas as pd
 import pytz
 
-# Set ephemeris path
-swe.set_ephe_path('/usr/share/ephe')  # Adjust if running locally
+# Title
+st.title("🪐 Planetary Longitudes & Nifty Price Mapping")
 
-# --- INPUT SECTION ---
-st.title("📈 Astro Time + Price Market View")
+# User inputs
+date_input = st.date_input("Select Date", datetime.now().date())
+time_input = st.time_input("Select Time", datetime.now().time())
+location_input = st.text_input("Enter Location (e.g., Mumbai, India)", "Mumbai, India")
 
-date_input = st.date_input("📅 Select Date", value=datetime(2025, 8, 6))
-time_input = st.time_input("⏰ Select Time", value=datetime.strptime("09:15", "%H:%M").time())
-location_input = st.text_input("📍 Location (for info only)", value="Mumbai, India")
+# Nifty price input
+nifty_high = st.number_input("Nifty High", value=24634)
+nifty_low = st.number_input("Nifty Low", value=24344)
 
-nifty_high = st.number_input("Nifty High", value=24634.0)
-nifty_low = st.number_input("Nifty Low", value=24344.0)
-nifty_close = st.number_input("Nifty Close", value=24596.0)
+# Compute timezone-aware datetime
+timezone = pytz.timezone('Asia/Kolkata')
+dt = timezone.localize(datetime.combine(date_input, time_input))
 
-# --- CONVERT TO JULIAN DAY ---
-dt = datetime.combine(date_input, time_input)
-timezone = pytz.timezone("Asia/Kolkata")
-dt = timezone.localize(dt)
-jd = swe.julday(dt.year, dt.month, dt.day, dt.hour + dt.minute / 60)
+# Load planetary data
+planets = load('de421.bsp')
+ts = load.timescale()
+t = ts.from_datetime(dt)
 
-# --- PLANETARY POSITIONS ---
-planets = {
-    'Sun': swe.SUN,
-    'Moon': swe.MOON,
-    'Mercury': swe.MERCURY,
-    'Venus': swe.VENUS,
-    'Mars': swe.MARS,
-    'Jupiter': swe.JUPITER,
-    'Saturn': swe.SATURN,
-    'Rahu (Mean)': swe.MEAN_NODE,
-    'Ketu (Mean)': swe.TRUE_NODE
+# Define planet list
+planet_names = {
+    "Sun": planets['sun'],
+    "Moon": planets['moon'],
+    "Mercury": planets['mercury'],
+    "Venus": planets['venus'],
+    "Mars": planets['mars'],
+    "Jupiter": planets['jupiter barycenter'],
+    "Saturn": planets['saturn barycenter'],
+    "Rahu (Mean)": None,
+    "Ketu (Mean)": None,
 }
 
+earth = planets['earth']
+
+# Placeholder for table
 planet_table = []
-gann_prices = []
 
-st.subheader("🪐 Planetary Longitudes & Price Mapping")
+# Calculate Nifty range per degree
+nifty_range = nifty_high - nifty_low
+price_per_degree = nifty_range / 360
 
-for name, p_id in planets.items():
-    lon_tuple = swe.calc_ut(jd, p_id)[0]
-    lon = lon_tuple[0]  # Extract longitude in degrees
+# Compute planetary longitudes and mapped price
+for name, body in planet_names.items():
+    if name == "Rahu (Mean)" or name == "Ketu (Mean)":
+        # Approximate mean Rahu/Ketu longitude (reverse of Moon's node)
+        moon = planets['moon']
+        e = earth.at(t)
+        moon_lon = e.observe(moon).ecliptic_latlon()[1].degrees
+        rahu_lon = (moon_lon + 180) % 360
+        ketu_lon = moon_lon % 360
+        if name == "Rahu (Mean)":
+            lon = rahu_lon
+        else:
+            lon = ketu_lon
+    else:
+        e = earth.at(t)
+        astrometric = e.observe(body)
+        lon = astrometric.ecliptic_latlon()[1].degrees
+
     sign = int(lon // 30) + 1
-    degree = lon % 30
+    mapped_price = nifty_low + (lon * price_per_degree)
+    planet_table.append([name, round(lon, 2), sign, round(mapped_price, 2)])
 
-    price_level = (degree / 360) * (nifty_high - nifty_low) + nifty_low
-    planet_table.append([name, f"{lon:.2f}°", f"Sign {sign}", f"{price_level:.2f}"])
-    gann_prices.append(price_level)
+# Display table
+df = pd.DataFrame(planet_table, columns=["Planet", "Longitude (°)", "Sign", "Mapped Nifty Price"])
+st.dataframe(df)
 
-st.table(
-    pd.DataFrame(planet_table, columns=["Planet", "Longitude", "Sign", "Mapped Nifty Price"])
-)
-
-# --- GANN TABLE ---
-st.subheader("📐 Gann Price Levels (from astro mapping)")
-
-gann_prices_sorted = sorted(gann_prices)
-for level in gann_prices_sorted:
-    st.markdown(f"🔹 **{level:.2f}**")
-
-# --- CLOSE LEVEL COMPARISON ---
-st.subheader("📊 Nifty Price Comparison")
-
-if nifty_close in gann_prices_sorted:
-    st.success("Nifty Close is exactly matching a planetary mapped level!")
-else:
-    # Find nearest Gann level
-    nearest = min(gann_prices_sorted, key=lambda x: abs(x - nifty_close))
-    st.info(f"Nifty Close: **{nifty_close:.2f}**, Nearest Astro Level: **{nearest:.2f}**")
-
-# --- DOWNLOAD OPTION ---
-st.download_button("📥 Download Astro Market Table (CSV)", 
-                   data=pd.DataFrame(planet_table, columns=["Planet", "Longitude", "Sign", "Mapped Nifty Price"]).to_csv(index=False),
-                   file_name="astro_market_view.csv",
-                   mime='text/csv')
+# Download as CSV
+csv = df.to_csv(index=False).encode('utf-8')
+st.download_button("📥 Download as CSV", data=csv, file_name='planetary_nifty_mapping.csv', mime='text/csv')
