@@ -1,6 +1,6 @@
 swisseph
 pytz
-geopy
 timezonefinder
+geopy
 reportlab
-streamlit
+matplotlib
