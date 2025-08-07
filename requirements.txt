@@ -1,2 +1,6 @@
+swisseph
+pytz
+geopy
+timezonefinder
+reportlab
 streamlit
-pyswisseph
