@@ -1,94 +1,94 @@
-import streamlit as st
-import swisseph as swe
-import datetime
-import pandas as pd
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-from reportlab.lib import colors
+from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib import colors
+from pytz import timezone
+import swisseph as swe
 
-# Set ephemeris path
-swe.set_ephe_path('.')
+# === INPUTS ===
+date_str = "6-8-2025"
+time_str = "09:15"
+location_name = "Mumbai"
+latitude = 19.0760
+longitude = 72.8777
+timezone_str = "Asia/Kolkata"
 
-# Planet names mapping
-planet_names = {
-    swe.SUN: "Sun",
-    swe.MOON: "Moon",
-    swe.MERCURY: "Mercury",
-    swe.VENUS: "Venus",
-    swe.MARS: "Mars",
-    swe.JUPITER: "Jupiter",
-    swe.SATURN: "Saturn",
-    swe.URANUS: "Uranus",
-    swe.NEPTUNE: "Neptune",
-    swe.PLUTO: "Pluto"
+# Nifty data
+nifty_data = {
+    "Open": 24574,
+    "High": 24634,
+    "Low": 24344,
+    "Close": 24596
 }
 
-# Function to get planetary positions
-def get_planet_positions(jd, cmp):
-    data = []
-    price_per_degree = cmp / 360
-    for planet in planet_names:
-        lon, _ = swe.calc_ut(jd, planet)
-        degree = round(lon[0], 2)
-        price_at_degree = round(price_per_degree * degree, 2)
-        data.append({
-            "Planet": planet_names[planet],
-            "Degree": degree,
-            "Price (CMP×Degree/360)": price_at_degree
-        })
-    return pd.DataFrame(data)
+# === PARSE DATETIME ===
+dt_local = datetime.strptime(f"{date_str} {time_str}", "%d-%m-%Y %H:%M")
+tz = timezone(timezone_str)
+dt_utc = tz.localize(dt_local).astimezone(timezone("UTC"))
 
-# Convert to PDF
-def generate_pdf(dataframe):
-    filename = "/mnt/data/Planetary_Price_Table.pdf"
-    doc = SimpleDocTemplate(filename, pagesize=A4)
-    elements = []
-    style = getSampleStyleSheet()
+# === PLANET LIST ===
+planets = {
+    "Sun": swe.SUN,
+    "Moon": swe.MOON,
+    "Mercury": swe.MERCURY,
+    "Venus": swe.VENUS,
+    "Mars": swe.MARS,
+    "Jupiter": swe.JUPITER,
+    "Saturn": swe.SATURN,
+    "Rahu (Mean)": swe.MEAN_NODE,
+    "Ketu (Mean)": swe.MEAN_NODE  # Ketu = Rahu + 180°
+}
 
-    title = Paragraph("Planetary Price Degree Table", style['Title'])
-    elements.append(title)
-    table_data = [list(dataframe.columns)] + dataframe.values.tolist()
+# === ASTRO DATA CALCULATION ===
+jd = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute / 60.0)
+planet_table = []
+for name, pl_code in planets.items():
+    lon, _ = swe.calc_ut(jd, pl_code)
+    if name == "Ketu (Mean)":
+        lon = (lon[0] + 180.0) % 360.0
+    planet_table.append([name, f"{lon[0]:.2f}°"])
 
-    table = Table(table_data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('ALIGN', (1, 0), (-1, -1), 'CENTER')
-    ]))
+# === PDF GENERATION ===
+file_path = "/mnt/data/Nifty_Astro_Report_6Aug2025.pdf"
+doc = SimpleDocTemplate(file_path, pagesize=A4)
+styles = getSampleStyleSheet()
+flowables = []
 
-    elements.append(table)
-    doc.build(elements)
-    return filename
+# Title
+flowables.append(Paragraph("Nifty Astro Report", styles["Title"]))
+flowables.append(Spacer(1, 12))
+flowables.append(Paragraph(f"Date & Time: {dt_local.strftime('%d-%b-%Y %I:%M %p')} ({location_name})", styles["Normal"]))
+flowables.append(Spacer(1, 12))
 
-# Streamlit UI
-st.title("🪐 Planetary Degree vs Price Calculator")
+# Nifty Table
+nifty_table = [
+    ["Index", "Open", "High", "Low", "Close"],
+    ["Nifty", nifty_data["Open"], nifty_data["High"], nifty_data["Low"], nifty_data["Close"]]
+]
+nifty_style = TableStyle([
+    ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+    ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+    ('ALIGN', (1, 0), (-1, -1), 'CENTER')
+])
+flowables.append(Paragraph("Nifty 50 Index Data:", styles["Heading3"]))
+flowables.append(Table(nifty_table, style=nifty_style))
+flowables.append(Spacer(1, 12))
 
-symbol = st.text_input("Enter Symbol (e.g., NIFTY, GOLD, BTC):", "NIFTY")
-cmp = st.number_input("Enter CMP (Current Market Price):", min_value=0.0, value=22000.0)
+# Planet Table
+astro_table = [["Planet", "Longitude (°)"]] + planet_table
+planet_style = TableStyle([
+    ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+    ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+    ('ALIGN', (1, 0), (-1, -1), 'CENTER')
+])
+flowables.append(Paragraph("Planetary Positions:", styles["Heading3"]))
+flowables.append(Table(astro_table, style=planet_style))
 
-col1, col2 = st.columns(2)
-with col1:
-    date_input = st.date_input("Select Date", datetime.date.today())
-with col2:
-    time_input = st.time_input("Select Time", datetime.datetime.now().time())
+# Build PDF
+doc.build(flowables)
 
-# Calculate Julian Day
-dt = datetime.datetime.combine(date_input, time_input)
-jd = swe.julday(dt.year, dt.month, dt.day, dt.hour + dt.minute / 60)
-
-if st.button("🧮 Calculate Planetary Price Table"):
-    df = get_planet_positions(jd, cmp)
-    st.dataframe(df)
-
-    # Generate PDF
-    pdf_path = generate_pdf(df)
-    with open(pdf_path, "rb") as file:
-        btn = st.download_button(
-            label="📄 Download PDF",
-            data=file,
-            file_name="Planetary_Price_Table.pdf",
-            mime="application/pdf"
-        )
+# Output file path
+file_path
