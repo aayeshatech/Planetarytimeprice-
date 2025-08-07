@@ -1,6 +1,4 @@
-swisseph
+skyfield
 pytz
-timezonefinder
-geopy
-reportlab
-matplotlib
+pandas
+streamlit
