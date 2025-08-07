@@ -1,52 +1,44 @@
+# app.py
 import streamlit as st
-from flatlib.chart import Chart
-from flatlib.datetime import Datetime
-from flatlib.geopos import GeoPos
-from reportlab.platypus import SimpleDocTemplate, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
+from skyfield.api import load, Topos
 from datetime import datetime
 import pytz
 
-# Streamlit form input
-st.title("Astro Price-Timing Report Generator")
+st.title("🪐 Planetary Timeline - Astrology Astro Date Tool")
 
-with st.form("astro_form"):
-    date_input = st.date_input("Select date:")
-    time_input = st.time_input("Select time:")
-    location = st.text_input("Enter location (e.g., Mumbai, India):", "Mumbai, India")
-    submit = st.form_submit_button("Generate Astro Report")
+# User Input
+date_input = st.date_input("📅 Select Date", datetime.now().date())
+time_input = st.time_input("⏰ Select Time", datetime.now().time())
+location_input = st.text_input("📍 Location (e.g., Mumbai, India)", "Mumbai, India")
 
-if submit:
-    full_datetime = datetime.combine(date_input, time_input)
-    local_tz = pytz.timezone("Asia/Kolkata")
-    local_dt = local_tz.localize(full_datetime)
+# Convert to UTC
+local_tz = pytz.timezone('Asia/Kolkata')  # You can auto-detect later
+dt_local = local_tz.localize(datetime.combine(date_input, time_input))
+dt_utc = dt_local.astimezone(pytz.utc)
 
-    # For flatlib
-    dt = Datetime(local_dt.strftime('%Y-%m-%d'), local_dt.strftime('%H:%M'), '+05:30')
-    pos = GeoPos('19.0760', '72.8777')  # Mumbai default
+# Load planetary data
+planets = load('de421.bsp')
+earth = planets['earth']
+ts = load.timescale()
+t = ts.utc(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour, dt_utc.minute)
 
-    chart = Chart(dt, pos)
+# Topos (approx Mumbai coords)
+observer = earth + Topos(latitude_degrees=19.0760, longitude_degrees=72.8777)
 
-    st.subheader("Planetary Positions:")
-    for obj in ['SUN', 'MOON', 'MERCURY', 'VENUS', 'MARS', 'JUPITER', 'SATURN']:
-        planet = chart.get(obj)
-        st.text(f"{obj}: {planet.sign} {planet.signlon}")
+# Planets to observe
+planet_list = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter barycenter', 'saturn barycenter']
+positions = []
 
-    # PDF Export
-    def export_pdf():
-        pdf_path = "/mnt/data/astro_report.pdf"
-        doc = SimpleDocTemplate(pdf_path)
-        styles = getSampleStyleSheet()
-        story = [Paragraph("Astro Price Timing Report", styles['Title'])]
+for name in planet_list:
+    planet = planets[name]
+    astrometric = observer.at(t).observe(planet).apparent()
+    ra, dec, distance = astrometric.radec()
+    alt, az, _ = observer.at(t).observe(planet).apparent().altaz()
+    positions.append((name.title(), ra.hours, dec.degrees, alt.degrees))
 
-        for obj in ['SUN', 'MOON', 'MERCURY', 'VENUS', 'MARS', 'JUPITER', 'SATURN']:
-            planet = chart.get(obj)
-            story.append(Paragraph(f"{obj}: {planet.sign} {planet.signlon}", styles['Normal']))
-
-        doc.build(story)
-        return pdf_path
-
-    if st.button("Download PDF"):
-        pdf_file = export_pdf()
-        with open(pdf_file, "rb") as f:
-            st.download_button("Download Astro PDF", f, file_name="astro_report.pdf")
+# Display table
+st.subheader("🌠 Planetary Positions")
+st.table([
+    {"Planet": name, "RA (hrs)": round(ra, 2), "Dec (°)": round(dec, 2), "Altitude (°)": round(alt, 2)}
+    for name, ra, dec, alt in positions
+])
