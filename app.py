@@ -57,14 +57,31 @@ st.markdown("""
     }
     .current-transit-row {
         background-color: #ffeb3b !important;
+        border: 2px solid #ff9800 !important;
+        box-shadow: 0 0 10px rgba(255, 152, 0, 0.5) !important;
     }
     .both-row {
         background-color: #ff9800 !important;
         font-weight: bold !important;
+        border: 2px solid #f44336 !important;
+        box-shadow: 0 0 10px rgba(244, 67, 54, 0.5) !important;
     }
     .planet-icon {
         display: inline-block;
         margin-right: 5px;
+    }
+    .current-transit-indicator {
+        position: relative;
+        display: inline-block;
+        padding: 0 5px;
+    }
+    .current-transit-indicator::after {
+        content: "⚡";
+        position: absolute;
+        top: -5px;
+        right: -10px;
+        color: #ff9800;
+        font-size: 1.2rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -83,6 +100,9 @@ with col2:
 with col3:
     cmp = st.number_input("CMP (Current Market Price)", value=24574.0)
     market = st.radio("Select Market", ["Indian Market", "Global Market"])
+
+# Font size control for the table
+font_size = st.slider("Table Font Size", min_value=12, max_value=24, value=16, step=1)
 
 # Generate button
 generate_report = st.button("Generate Report", key="generate_btn")
@@ -333,21 +353,26 @@ if generate_report:
         return ['background-color: lightgreen; font-weight: bold' if v == 'Yes' else '' for v in s]
     
     def highlight_current_transit(s):
-        return ['background-color: yellow' if v == 'Yes' else '' for v in s]
+        return ['background-color: yellow; border: 2px solid #ff9800; box-shadow: 0 0 10px rgba(255, 152, 0, 0.5)' if v == 'Yes' else '' for v in s]
     
     def highlight_both(row):
         if row['Important'] == 'Yes' and row['Current Transit'] == 'Yes':
-            return ['background-color: orange; font-weight: bold'] * len(row)
+            return ['background-color: orange; font-weight: bold; border: 2px solid #f44336; box-shadow: 0 0 10px rgba(244, 67, 54, 0.5)'] * len(row)
         elif row['Important'] == 'Yes':
             return ['background-color: lightgreen; font-weight: bold'] * len(row)
         elif row['Current Transit'] == 'Yes':
-            return ['background-color: yellow'] * len(row)
+            return ['background-color: yellow; border: 2px solid #ff9800; box-shadow: 0 0 10px rgba(255, 152, 0, 0.5)'] * len(row)
         else:
             return [''] * len(row)
     
     # Apply the styling
     styled_df = styled_df.style.apply(highlight_both, axis=1)
-    styled_df = styled_df.set_properties(**{'font-size': '1.1rem'})
+    styled_df = styled_df.set_properties(**{'font-size': f'{font_size}px'})
+    
+    # Add a lightning bolt icon to current transit rows
+    for idx, row in df.iterrows():
+        if row['Current Transit'] == 'Yes':
+            styled_df = styled_df.format({'Key Planet': lambda x: f'<span class="current-transit-indicator">{x}</span>'})
     
     # Display the styled dataframe
     st.dataframe(styled_df, use_container_width=True)
@@ -425,7 +450,7 @@ if generate_report:
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),  # Increased font size
+            ('FONTSIZE', (0, 0), (-1, -1), font_size/2),  # Convert to points (1px ≈ 0.75pt)
             # First, set all rows to white
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
         ]
@@ -438,8 +463,10 @@ if generate_report:
             if important and current_transit:
                 style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.orange))
                 style_commands.append(('FONTNAME', (0, i), (-1, i), 'Helvetica-Bold'))
+                style_commands.append(('BOX', (0, i), (-1, i), 2, colors.red))
             elif current_transit:
                 style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.yellow))
+                style_commands.append(('BOX', (0, i), (-1, i), 2, colors.orange))
             elif important:
                 style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
                 style_commands.append(('FONTNAME', (0, i), (-1, i), 'Helvetica-Bold'))
