@@ -1,61 +1,89 @@
-import math
-import datetime
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+from io import BytesIO
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
 
-# === INPUT ===
-symbol_name = "Nifty"
-current_price = 24574
-base_degree = 0       # Can be 0 for Gann 360 system
-base_price = 144      # 1 degree = ₹1.6875 (24480/144°) approx
+# Title
+st.title("Astro Data Report")
 
-# === FUNCTION TO CALCULATE PRICE AT GANN DEGREE ===
-def price_from_degree(degree):
-    return round(base_price * (degree / 1), 2)
+# Input fields
+date_input = st.date_input("Select Date", datetime.today())
+time_input = st.time_input("Select Time", datetime.now().time())
+location_input = st.text_input("Enter Location (e.g., Mumbai, India)", "Mumbai, India")
 
-def degree_from_price(price):
-    return round((price / base_price) * 1, 2)
-
-# === SWING RANGE CALCULATION (±4° to ±6° range) ===
-intraday_swing_degrees = [0, 2, 4, 6, 8, 10, 12, 16, 24, 30, 36, 45, 60, 72, 90, 120, 144, 150, 180, 210, 240, 270, 288, 300, 315, 330, 345, 360]
-
-# Calculate nearest base degree
-price_deg = degree_from_price(current_price)
-base_deg = min(intraday_swing_degrees, key=lambda x: abs(x - price_deg))
-
-# Get ±range (one level above/below)
-idx = intraday_swing_degrees.index(base_deg)
-levels = []
-if idx > 0:
-    levels.append(intraday_swing_degrees[idx - 1])
-levels.append(base_deg)
-if idx < len(intraday_swing_degrees) - 1:
-    levels.append(intraday_swing_degrees[idx + 1])
-
-# Generate support-resistance levels
-levels_prices = [(deg, price_from_degree(deg)) for deg in levels]
-
-# === OUTPUT ===
-print(f"\n🔹 Symbol: {symbol_name.upper()}  |  CMP: ₹{current_price}")
-print("🔹 Gann Swing Levels:")
-for deg, price in levels_prices:
-    tag = "(CMP)" if math.isclose(price, current_price, abs_tol=5) else ""
-    print(f"   → {deg:>3}° = ₹{price:>7} {tag}")
-
-# === Optional: Astro Link ===
-# Example: You can map planet to price based on degree
-planet_degrees = {
-    "Sun": 144,
-    "Moon": 90,
-    "Mercury": 72,
-    "Venus": 60,
-    "Mars": 36,
-    "Jupiter": 120,
-    "Saturn": 288
+# Sample data structure
+sample_data = {
+    "Time": ["9:15 AM", "10:30 AM", "11:45 AM", "12:30 PM", "2:00 PM"],
+    "Planet": ["Moon", "Mercury", "Venus", "Mars", "Jupiter"],
+    "Transit Type": ["Nakshatra Change", "Sign Change", "Aspect", "Degree Change", "Sub Lord Change"],
+    "Bullish/Bearish": ["Bullish", "Bearish", "Bullish", "Bearish", "Bullish"],
+    "Impact": ["Nifty", "Bank Nifty", "Gold", "BTC", "Dow Jones"]
 }
-print("\n🔹 Planetary Price Map:")
-for planet, deg in planet_degrees.items():
-    price = price_from_degree(deg)
-    print(f"   → {planet:<8} @ {deg:>3}° = ₹{price}")
 
-# === Optional: Time Alert Tagging ===
-now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-print(f"\n🕒 Generated at {now}")
+df = pd.DataFrame(sample_data)
+
+# Ensure column types are consistent (fix ArrowTypeError)
+for col in df.columns:
+    df[col] = df[col].astype(str)
+
+# Show table
+st.subheader("Astrological Event Timeline")
+st.dataframe(df)
+
+# --- PDF Generation ---
+def generate_pdf(dataframe):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elements = []
+    styles = getSampleStyleSheet()
+
+    # Title
+    elements.append(Paragraph("Astro Data Report", styles['Title']))
+    elements.append(Spacer(1, 12))
+
+    # Location and time
+    dt_str = datetime.combine(date_input, time_input).strftime('%d %B %Y, %I:%M %p')
+    elements.append(Paragraph(f"Date & Time: {dt_str}", styles['Normal']))
+    elements.append(Paragraph(f"Location: {location_input}", styles['Normal']))
+    elements.append(Spacer(1, 12))
+
+    # Table content
+    table_data = [list(dataframe.columns)] + dataframe.values.tolist()
+    table = Table(table_data)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.lightgrey])
+    ]))
+    elements.append(table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+# Download as PDF
+pdf_buffer = generate_pdf(df)
+st.download_button(
+    label="Download PDF",
+    data=pdf_buffer,
+    file_name=f"astro_report_{date_input.strftime('%Y-%m-%d')}.pdf",
+    mime="application/pdf"
+)
+
+# Download as Excel
+excel_buffer = BytesIO()
+df.to_excel(excel_buffer, index=False, engine='openpyxl')
+excel_buffer.seek(0)
+st.download_button(
+    label="Download Excel",
+    data=excel_buffer,
+    file_name=f"astro_report_{date_input.strftime('%Y-%m-%d')}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
