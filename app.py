@@ -18,8 +18,7 @@ def get_location_coords(location_name):
         return location.latitude, location.longitude, 'UTC'
     return None, None, None
 
-# ---------- Planet Loader ----------
-@st.cache_data(show_spinner=False)
+# ---------- DO NOT CACHE: Not Serializable ----------
 def load_planets():
     return load('de421.bsp')
 
@@ -51,33 +50,3 @@ def get_planet_positions(date_str, time_str, lat, lon, tz_str):
         })
 
     return pd.DataFrame(data)
-
-# ---------- Streamlit UI ----------
-st.set_page_config(page_title="Astro Price Timeline Tool", layout="centered")
-st.title("🪐 Planetary Timeline for Symbol & Price")
-
-# Inputs: Symbol + Price
-symbol = st.text_input("🔤 Enter Symbol (e.g., Gold, BTC)", "Gold")
-price = st.number_input("💰 Enter Price (optional)", min_value=0.0, value=0.0, step=0.1)
-
-# Date & Time
-col1, col2 = st.columns(2)
-with col1:
-    date_input = st.date_input("📅 Select Date", datetime.now()).strftime("%d-%m-%Y")
-with col2:
-    time_input = st.time_input("⏰ Select Time", datetime.now().time()).strftime("%H:%M")
-
-# Location
-location_input = st.text_input("📍 Location (e.g., Mumbai, India)", "Mumbai, India")
-
-if st.button("🔮 Calculate Planetary Transit"):
-    lat, lon, tz_str = get_location_coords(location_input)
-    if lat is None:
-        st.error("❌ Location not found.")
-    else:
-        df = get_planet_positions(date_input, time_input, lat, lon, tz_str)
-        st.markdown(f"### 📈 Intraday Astro Data for **{symbol.upper()}** at ₹{price}")
-        st.dataframe(df)
-
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("⬇️ Download CSV", data=csv, file_name=f"{symbol}_astro_{date_input}.csv", mime="text/csv")
