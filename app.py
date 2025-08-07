@@ -1,90 +1,94 @@
 import streamlit as st
-from datetime import datetime
-from pytz import timezone
 import swisseph as swe
+import datetime
 import pandas as pd
-from io import BytesIO
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 
-# Load ephemeris
-swe.set_ephe_path("/usr/share/ephe")  # You may need to adjust this
+# Set ephemeris path
+swe.set_ephe_path('.')
 
-def price_to_degree(price, base=360):
-    return (price % base)
+# Planet names mapping
+planet_names = {
+    swe.SUN: "Sun",
+    swe.MOON: "Moon",
+    swe.MERCURY: "Mercury",
+    swe.VENUS: "Venus",
+    swe.MARS: "Mars",
+    swe.JUPITER: "Jupiter",
+    swe.SATURN: "Saturn",
+    swe.URANUS: "Uranus",
+    swe.NEPTUNE: "Neptune",
+    swe.PLUTO: "Pluto"
+}
 
-def degree_to_price(degree, base=360):
-    return degree + (base * (int(price) // base))
-
-def get_planet_positions(jd):
-    planets = {
-        'Sun': swe.SUN, 'Moon': swe.MOON, 'Mercury': swe.MERCURY,
-        'Venus': swe.VENUS, 'Mars': swe.MARS, 'Jupiter': swe.JUPITER,
-        'Saturn': swe.SATURN, 'Rahu (Mean)': swe.MEAN_NODE, 'Ketu (Mean)': swe.MEAN_NODE
-    }
-
-    positions = []
-    for name, pid in planets.items():
-        lon, _ = swe.calc_ut(jd, pid)
-        if name == 'Ketu (Mean)':
-            lon = (lon + 180) % 360
-        positions.append({
-            'Planet': name,
-            'Degree': round(lon, 2)
+# Function to get planetary positions
+def get_planet_positions(jd, cmp):
+    data = []
+    price_per_degree = cmp / 360
+    for planet in planet_names:
+        lon, _ = swe.calc_ut(jd, planet)
+        degree = round(lon[0], 2)
+        price_at_degree = round(price_per_degree * degree, 2)
+        data.append({
+            "Planet": planet_names[planet],
+            "Degree": degree,
+            "Price (CMP×Degree/360)": price_at_degree
         })
+    return pd.DataFrame(data)
 
-    return pd.DataFrame(positions)
-
-def create_pdf(dataframe):
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
+# Convert to PDF
+def generate_pdf(dataframe):
+    filename = "/mnt/data/Planetary_Price_Table.pdf"
+    doc = SimpleDocTemplate(filename, pagesize=A4)
     elements = []
     style = getSampleStyleSheet()
-    title = Paragraph("Planetary Degree to Price Mapping", style['Title'])
+
+    title = Paragraph("Planetary Price Degree Table", style['Title'])
     elements.append(title)
     table_data = [list(dataframe.columns)] + dataframe.values.tolist()
+
     table = Table(table_data)
     table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ('ALIGN', (1, 0), (-1, -1), 'CENTER')
     ]))
+
     elements.append(table)
     doc.build(elements)
-    buffer.seek(0)
-    return buffer
+    return filename
 
-# ---- Streamlit App ----
-st.title("📈 Intraday Astro-Gann Price Degree Calculator")
+# Streamlit UI
+st.title("🪐 Planetary Degree vs Price Calculator")
 
-symbol = st.text_input("Enter Symbol (e.g., NIFTY)", value="NIFTY")
-price = st.number_input("Enter CMP Price", value=22200.0)
-date_input = st.date_input("Select Date", value=datetime.now().date())
-time_input = st.time_input("Select Time (IST)", value=datetime.now().time())
-location = st.text_input("Enter Location (City)", value="Mumbai")
+symbol = st.text_input("Enter Symbol (e.g., NIFTY, GOLD, BTC):", "NIFTY")
+cmp = st.number_input("Enter CMP (Current Market Price):", min_value=0.0, value=22000.0)
 
-if st.button("Calculate Astro Mapping"):
-    # Convert to UTC datetime
-    dt = datetime.combine(date_input, time_input)
-    tz = timezone("Asia/Kolkata")
-    dt_local = tz.localize(dt)
-    dt_utc = dt_local.astimezone(timezone("UTC"))
-    jd = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute / 60.0)
+col1, col2 = st.columns(2)
+with col1:
+    date_input = st.date_input("Select Date", datetime.date.today())
+with col2:
+    time_input = st.time_input("Select Time", datetime.datetime.now().time())
 
-    df = get_planet_positions(jd)
-    df['Mapped Price'] = df['Degree'].apply(lambda d: round(degree_to_price(d, base=360), 2))
-    df['Price Degree'] = df['Degree'].apply(lambda d: round(d, 2))
+# Calculate Julian Day
+dt = datetime.datetime.combine(date_input, time_input)
+jd = swe.julday(dt.year, dt.month, dt.day, dt.hour + dt.minute / 60)
 
-    st.subheader("🪐 Planetary Degrees and Price Mapping")
+if st.button("🧮 Calculate Planetary Price Table"):
+    df = get_planet_positions(jd, cmp)
     st.dataframe(df)
 
-    # PDF download
-    pdf_data = create_pdf(df)
-    st.download_button("📄 Download PDF", data=pdf_data, file_name=f"{symbol}_astro_mapping.pdf", mime="application/pdf")
-
+    # Generate PDF
+    pdf_path = generate_pdf(df)
+    with open(pdf_path, "rb") as file:
+        btn = st.download_button(
+            label="📄 Download PDF",
+            data=file,
+            file_name="Planetary_Price_Table.pdf",
+            mime="application/pdf"
+        )
