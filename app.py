@@ -1,61 +1,74 @@
-import streamlit as st
-from skyfield.api import load
-import pandas as pd
+import tkinter as tk
+from tkinter import filedialog
+from flatlib.chart import Chart
+from flatlib.geopos import GeoPos
+from flatlib.datetime import Datetime
+from flatlib.const import PLANETS
 from datetime import datetime
-import pytz
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+from reportlab.lib import colors
 
-# Load ephemeris
-planets = load('de421.bsp')
-ts = load.timescale()
+def get_transits(date_str, time_str, place_lat, place_lon):
+    dt = Datetime(f'{date_str}', f'{time_str}', '+05:30')  # IST
+    pos = GeoPos(place_lat, place_lon)
+    chart = Chart(dt, pos)
+    data = []
+    for planet in PLANETS:
+        obj = chart.get(planet)
+        data.append([planet, obj.sign, f'{round(obj.lon, 2)}°'])
+    return data
 
-# Input section
-st.title("🔮 Astro Intraday Price & Time System")
+def show_result():
+    date_str = date_entry.get()
+    time_str = time_entry.get()
+    lat = lat_entry.get()
+    lon = lon_entry.get()
 
-symbol = st.text_input("Enter Symbol (e.g., Nifty)", "Nifty")
-cmp = st.number_input("CMP or Close Price", value=24596.0)
-high = st.number_input("High", value=24634.0)
-low = st.number_input("Low", value=24344.0)
-date_input = st.date_input("Select Date", datetime.now().date())
-time_input = st.time_input("Select Time", datetime.now().time())
-location = st.text_input("Location (City)", "Mumbai")
+    table_data = [["Planet", "Sign", "Degree"]]
+    result = get_transits(date_str, time_str, lat, lon)
+    table_data.extend(result)
 
-# Timezone
-timezone = pytz.timezone("Asia/Kolkata")
-dt = timezone.localize(datetime.combine(date_input, time_input))
-t = ts.from_datetime(dt)
+    for row in table_data:
+        output.insert(tk.END, "\t".join(row) + "\n")
 
-# Planet list
-planet_dict = {
-    "Sun": planets['sun'],
-    "Moon": planets['moon'],
-    "Mercury": planets['mercury'],
-    "Venus": planets['venus'],
-    "Mars": planets['mars'],
-    "Jupiter": planets['jupiter barycenter'],
-    "Saturn": planets['saturn barycenter'],
-    "Uranus": planets['uranus barycenter'],
-    "Neptune": planets['neptune barycenter'],
-    "Pluto": planets['pluto barycenter']
-}
+def export_pdf():
+    table_data = [["Planet", "Sign", "Degree"]]
+    result = get_transits(date_entry.get(), time_entry.get(), lat_entry.get(), lon_entry.get())
+    table_data.extend(result)
 
-# Price per degree
-price_range = high - low
-price_per_deg = price_range / 360
+    pdf = SimpleDocTemplate("astro_transits.pdf")
+    table = Table(table_data)
+    table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.lightblue),
+                               ("GRID", (0, 0), (-1, -1), 1, colors.black)]))
+    pdf.build([table])
 
-# Result table
-results = []
-earth = planets['earth']
+app = tk.Tk()
+app.title("Dynamic Astro Transit Layout")
 
-for name, planet in planet_dict.items():
-    astrometric = earth.at(t).observe(planet)
-    lon = astrometric.ecliptic_latlon()[1].degrees
-    price_level = low + (lon * price_per_deg)
-    results.append([name, round(lon, 2), round(price_level, 2)])
+tk.Label(app, text="Date (YYYY-MM-DD):").grid(row=0, column=0)
+date_entry = tk.Entry(app)
+date_entry.insert(0, "2025-08-07")
+date_entry.grid(row=0, column=1)
 
-# Output DataFrame
-df = pd.DataFrame(results, columns=["Planet", "Longitude (°)", f"{symbol} Price Level"])
-st.dataframe(df)
+tk.Label(app, text="Time (HH:MM):").grid(row=1, column=0)
+time_entry = tk.Entry(app)
+time_entry.insert(0, "09:15")
+time_entry.grid(row=1, column=1)
 
-# Download CSV
-csv = df.to_csv(index=False).encode('utf-8')
-st.download_button("📥 Download CSV", csv, f"{symbol}_astro_levels.csv", "text/csv")
+tk.Label(app, text="Latitude:").grid(row=2, column=0)
+lat_entry = tk.Entry(app)
+lat_entry.insert(0, "19.0760")  # Mumbai latitude
+lat_entry.grid(row=2, column=1)
+
+tk.Label(app, text="Longitude:").grid(row=3, column=0)
+lon_entry = tk.Entry(app)
+lon_entry.insert(0, "72.8777")  # Mumbai longitude
+lon_entry.grid(row=3, column=1)
+
+tk.Button(app, text="Show Transit", command=show_result).grid(row=4, column=0)
+tk.Button(app, text="Export PDF", command=export_pdf).grid(row=4, column=1)
+
+output = tk.Text(app, height=15, width=60)
+output.grid(row=5, column=0, columnspan=2)
+
+app.mainloop()
