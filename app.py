@@ -104,6 +104,9 @@ with col3:
 # Font size control for the table
 font_size = st.slider("Table Font Size", min_value=12, max_value=24, value=16, step=1)
 
+# Background color picker for the intraday swing range box
+box_bg_color = st.color_picker("Background Color for Intraday Swing Range Box", "#e8eaf6")
+
 # Generate button
 generate_report = st.button("Generate Report", key="generate_btn")
 
@@ -343,19 +346,13 @@ if generate_report:
     st.markdown(f'<div class="sub-header">Market Hours: {market_start.strftime("%I:%M %p")} to {market_end.strftime("%I:%M %p")}</div>', unsafe_allow_html=True)
     
     # Display the table with highlighting
-    st.markdown('<div class="sub-header">Intraday Swing Range</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-header">Intraday Swing Range</div>', unsafe_allow_html=True)
     
     # Create a copy of the dataframe for styling
     styled_df = df.copy()
     
     # Apply styling using pandas Styler
-    def highlight_important(s):
-        return ['background-color: lightgreen; font-weight: bold' if v == 'Yes' else '' for v in s]
-    
-    def highlight_current_transit(s):
-        return ['background-color: yellow; border: 2px solid #ff9800; box-shadow: 0 0 10px rgba(255, 152, 0, 0.5)' if v == 'Yes' else '' for v in s]
-    
-    def highlight_both(row):
+    def highlight_rows(row):
         if row['Important'] == 'Yes' and row['Current Transit'] == 'Yes':
             return ['background-color: orange; font-weight: bold; border: 2px solid #f44336; box-shadow: 0 0 10px rgba(244, 67, 54, 0.5)'] * len(row)
         elif row['Important'] == 'Yes':
@@ -366,13 +363,8 @@ if generate_report:
             return [''] * len(row)
     
     # Apply the styling
-    styled_df = styled_df.style.apply(highlight_both, axis=1)
+    styled_df = styled_df.style.apply(highlight_rows, axis=1)
     styled_df = styled_df.set_properties(**{'font-size': f'{font_size}px'})
-    
-    # Add a lightning bolt icon to current transit rows
-    for idx, row in df.iterrows():
-        if row['Current Transit'] == 'Yes':
-            styled_df = styled_df.format({'Key Planet': lambda x: f'<span class="current-transit-indicator">{x}</span>'})
     
     # Display the styled dataframe
     st.dataframe(styled_df, use_container_width=True)
@@ -497,3 +489,16 @@ if generate_report:
         file_name=f"astro_gann_report_{date_input.strftime('%Y-%m-%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+    
+    # Apply custom background color to the intraday swing range box
+    st.markdown(f"""
+    <style>
+        div[data-testid="stVerticalBlock"] > div:has(div[data-testid="stVerticalBlock"] > div > div > div > .dataframe) {{
+            background-color: {box_bg_color};
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border-left: 5px solid #3f51b5;
+            margin-bottom: 1rem;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
