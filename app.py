@@ -1,94 +1,61 @@
-import streamlit as st
-from datetime import datetime
-from io import BytesIO
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
-import matplotlib.pyplot as plt
-import base64
+import math
+import datetime
 
-# === Layout ===
-st.set_page_config(page_title="Astro Report Generator", layout="centered")
+# === INPUT ===
+symbol_name = "Nifty"
+current_price = 24574
+base_degree = 0       # Can be 0 for Gann 360 system
+base_price = 144      # 1 degree = ₹1.6875 (24480/144°) approx
 
-st.title("🪐 Astrology Report Generator")
+# === FUNCTION TO CALCULATE PRICE AT GANN DEGREE ===
+def price_from_degree(degree):
+    return round(base_price * (degree / 1), 2)
 
-# Input: Date, Time
-date_input = st.date_input("Select Date", datetime.now().date())
-time_input = st.time_input("Select Time", datetime.now().time())
+def degree_from_price(price):
+    return round((price / base_price) * 1, 2)
 
-# Input: Location
-location_input = st.text_input("Enter Location (City, Country)", value="Mumbai, India")
+# === SWING RANGE CALCULATION (±4° to ±6° range) ===
+intraday_swing_degrees = [0, 2, 4, 6, 8, 10, 12, 16, 24, 30, 36, 45, 60, 72, 90, 120, 144, 150, 180, 210, 240, 270, 288, 300, 315, 330, 345, 360]
 
-# Combine datetime
-input_datetime = datetime.combine(date_input, time_input)
+# Calculate nearest base degree
+price_deg = degree_from_price(current_price)
+base_deg = min(intraday_swing_degrees, key=lambda x: abs(x - price_deg))
 
-# Generate Button
-generate = st.button("🔮 Generate Report")
+# Get ±range (one level above/below)
+idx = intraday_swing_degrees.index(base_deg)
+levels = []
+if idx > 0:
+    levels.append(intraday_swing_degrees[idx - 1])
+levels.append(base_deg)
+if idx < len(intraday_swing_degrees) - 1:
+    levels.append(intraday_swing_degrees[idx + 1])
 
-# Placeholder for results
-if generate:
-    st.subheader("🗓️ Astro Report for:")
-    st.write(f"**Date & Time:** {input_datetime.strftime('%d %B %Y, %I:%M %p')}")
-    st.write(f"**Location:** {location_input}")
+# Generate support-resistance levels
+levels_prices = [(deg, price_from_degree(deg)) for deg in levels]
 
-    # === Astro Dummy Data (replace with real astro logic or API call) ===
-    st.markdown("#### 🌟 Planetary Impact Summary")
-    data = {
-        "Planet": ["Sun", "Moon", "Mercury", "Venus", "Mars"],
-        "Sign": ["Leo", "Cancer", "Leo", "Virgo", "Taurus"],
-        "Nakshatra": ["Magha", "Pushya", "Ashlesha", "Uttara Phalguni", "Rohini"],
-        "Effect": ["Strong", "Neutral", "Favorable", "Strong", "Aggressive"]
-    }
+# === OUTPUT ===
+print(f"\n🔹 Symbol: {symbol_name.upper()}  |  CMP: ₹{current_price}")
+print("🔹 Gann Swing Levels:")
+for deg, price in levels_prices:
+    tag = "(CMP)" if math.isclose(price, current_price, abs_tol=5) else ""
+    print(f"   → {deg:>3}° = ₹{price:>7} {tag}")
 
-    for i in range(len(data["Planet"])):
-        st.write(f"**{data['Planet'][i]}** in {data['Sign'][i]} ({data['Nakshatra'][i]}) → *{data['Effect'][i]}*")
+# === Optional: Astro Link ===
+# Example: You can map planet to price based on degree
+planet_degrees = {
+    "Sun": 144,
+    "Moon": 90,
+    "Mercury": 72,
+    "Venus": 60,
+    "Mars": 36,
+    "Jupiter": 120,
+    "Saturn": 288
+}
+print("\n🔹 Planetary Price Map:")
+for planet, deg in planet_degrees.items():
+    price = price_from_degree(deg)
+    print(f"   → {planet:<8} @ {deg:>3}° = ₹{price}")
 
-    # === Chart (sample plot) ===
-    st.markdown("#### 📊 Planetary Strength Chart")
-
-    fig, ax = plt.subplots()
-    strengths = [90, 60, 75, 80, 40]
-    ax.bar(data["Planet"], strengths)
-    ax.set_ylabel("Strength (%)")
-    ax.set_ylim([0, 100])
-    ax.set_title("Planetary Strengths")
-
-    st.pyplot(fig)
-
-    # === Download PDF ===
-    def generate_pdf():
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-        styles = getSampleStyleSheet()
-        story = []
-
-        story.append(Paragraph("Astrological Report", styles['Title']))
-        story.append(Spacer(1, 12))
-        story.append(Paragraph(f"Date & Time: {input_datetime.strftime('%d %B %Y, %I:%M %p')}", styles['Normal']))
-        story.append(Paragraph(f"Location: {location_input}", styles['Normal']))
-        story.append(Spacer(1, 12))
-        story.append(Paragraph("Planetary Effects:", styles['Heading2']))
-
-        for i in range(len(data["Planet"])):
-            story.append(Paragraph(
-                f"{data['Planet'][i]} in {data['Sign'][i]} ({data['Nakshatra'][i]}) → {data['Effect'][i]}",
-                styles['Normal']
-            ))
-
-        doc.build(story)
-        buffer.seek(0)
-        return buffer
-
-    pdf = generate_pdf()
-    st.download_button("📄 Download PDF Report", data=pdf, file_name="astro_report.pdf", mime="application/pdf")
-
-    # === Download PNG (chart) ===
-    def get_image_download_link(fig, filename="astro_chart.png"):
-        img_bytes = BytesIO()
-        fig.savefig(img_bytes, format='png')
-        img_bytes.seek(0)
-        b64 = base64.b64encode(img_bytes.read()).decode()
-        href = f'<a href="data:image/png;base64,{b64}" download="{filename}">🖼️ Download PNG Chart</a>'
-        return href
-
-    st.markdown(get_image_download_link(fig), unsafe_allow_html=True)
+# === Optional: Time Alert Tagging ===
+now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+print(f"\n🕒 Generated at {now}")
