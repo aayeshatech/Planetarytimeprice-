@@ -1,40 +1,52 @@
-# app.py
 import streamlit as st
 from flatlib.chart import Chart
 from flatlib.datetime import Datetime
 from flatlib.geopos import GeoPos
-from flatlib.const import PLANETS
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime
+import pytz
 
-st.set_page_config(page_title="Planetary Time & Price", layout="centered")
+# Streamlit form input
+st.title("Astro Price-Timing Report Generator")
 
-st.title("🔭 Planetary Time & Price Mapper")
+with st.form("astro_form"):
+    date_input = st.date_input("Select date:")
+    time_input = st.time_input("Select time:")
+    location = st.text_input("Enter location (e.g., Mumbai, India):", "Mumbai, India")
+    submit = st.form_submit_button("Generate Astro Report")
 
-# --- Input
-symbol = st.text_input("Symbol (e.g., NIFTY):", value="NIFTY")
-cmp = st.number_input("Current Market Price:", min_value=0.0, value=24596.0)
-date = st.date_input("Select Date", value=datetime(2025, 8, 7))
-time = st.time_input("Time (24H)", value=datetime.now().time())
-lat = st.text_input("Latitude (e.g., 19.0760 for Mumbai):", value="19.0760")
-lon = st.text_input("Longitude (e.g., 72.8777 for Mumbai):", value="72.8777")
+if submit:
+    full_datetime = datetime.combine(date_input, time_input)
+    local_tz = pytz.timezone("Asia/Kolkata")
+    local_dt = local_tz.localize(full_datetime)
 
-if st.button("Calculate Planetary Degrees"):
-    dt = Datetime(str(date), str(time)[:5], '+05:30')  # IST
-    pos = GeoPos(lat, lon)
+    # For flatlib
+    dt = Datetime(local_dt.strftime('%Y-%m-%d'), local_dt.strftime('%H:%M'), '+05:30')
+    pos = GeoPos('19.0760', '72.8777')  # Mumbai default
+
     chart = Chart(dt, pos)
 
-    data = []
-    for planet in PLANETS:
-        obj = chart.get(planet)
-        degree = round(obj.lon, 2)
-        mapped_price = round((cmp * degree) / 360, 2)
-        data.append({
-            "Planet": planet,
-            "Sign": obj.sign,
-            "Degree": degree,
-            "Mapped Price": mapped_price
-        })
+    st.subheader("Planetary Positions:")
+    for obj in ['SUN', 'MOON', 'MERCURY', 'VENUS', 'MARS', 'JUPITER', 'SATURN']:
+        planet = chart.get(obj)
+        st.text(f"{obj}: {planet.sign} {planet.signlon}")
 
-    # --- Show result
-    st.subheader(f"🪐 Planetary Mapping for {symbol}")
-    st.dataframe(data, use_container_width=True)
+    # PDF Export
+    def export_pdf():
+        pdf_path = "/mnt/data/astro_report.pdf"
+        doc = SimpleDocTemplate(pdf_path)
+        styles = getSampleStyleSheet()
+        story = [Paragraph("Astro Price Timing Report", styles['Title'])]
+
+        for obj in ['SUN', 'MOON', 'MERCURY', 'VENUS', 'MARS', 'JUPITER', 'SATURN']:
+            planet = chart.get(obj)
+            story.append(Paragraph(f"{obj}: {planet.sign} {planet.signlon}", styles['Normal']))
+
+        doc.build(story)
+        return pdf_path
+
+    if st.button("Download PDF"):
+        pdf_file = export_pdf()
+        with open(pdf_file, "rb") as f:
+            st.download_button("Download Astro PDF", f, file_name="astro_report.pdf")
