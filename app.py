@@ -6,6 +6,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from reportlab.lib.units import inch
 import numpy as np
 
 # Title
@@ -179,6 +180,11 @@ if generate_report:
         # Check if this is the important planet
         is_important = (planet == important_planet)
         
+        # Check if current time is within this planet's transit window
+        current_time = datetime.now().time()
+        current_dt = datetime.combine(date_input, current_time)
+        is_current_transit = adj_start_time <= current_dt <= adj_end_time
+        
         results.append({
             "Symbol": symbol,
             "CMP": f"₹{cmp:.2f}",
@@ -187,7 +193,8 @@ if generate_report:
             "Degree Range": f"{degree_low:.2f}°–{degree_high:.2f}°",
             "Key Planet": planet_display,
             "Timing (IST)": timing_str,
-            "Important": "Yes" if is_important else "No"
+            "Important": "Yes" if is_important else "No",
+            "Current Transit": "Yes" if is_current_transit else "No"
         })
     
     # Create DataFrame
@@ -201,9 +208,23 @@ if generate_report:
     # Display market hours
     st.subheader(f"Market Hours: {market_start.strftime('%I:%M %p')} to {market_end.strftime('%I:%M %p')}")
     
-    # Display the table
+    # Display the table with highlighting
     st.subheader("Intraday Swing Range")
-    st.dataframe(df.style.apply(lambda x: ['background: lightgreen' if x.Important == 'Yes' else '' for i in x], axis=1))
+    
+    # Define styling function
+    def highlight_rows(row):
+        if row['Current Transit'] == 'Yes' and row['Important'] == 'Yes':
+            return ['background: orange'] * len(row)
+        elif row['Current Transit'] == 'Yes':
+            return ['background: yellow'] * len(row)
+        elif row['Important'] == 'Yes':
+            return ['background: lightgreen'] * len(row)
+        else:
+            return [''] * len(row)
+    
+    # Apply styling and display
+    styled_df = df.style.apply(highlight_rows, axis=1)
+    st.dataframe(styled_df, use_container_width=True)
     
     # --- PDF Generation ---
     def generate_pdf(dataframe):
@@ -239,18 +260,47 @@ if generate_report:
         
         # Table content
         table_data = [list(dataframe.columns)] + dataframe.values.tolist()
-        table = Table(table_data)
-        table.setStyle(TableStyle([
+        
+        # Define column widths for better layout
+        colWidths = [
+            1.0 * inch,  # Symbol
+            0.8 * inch,  # CMP
+            1.0 * inch,  # Swing Low
+            1.0 * inch,  # Swing High
+            1.2 * inch,  # Degree Range
+            1.5 * inch,  # Key Planet
+            1.5 * inch,  # Timing
+            0.8 * inch,  # Important
+            0.8 * inch   # Current Transit
+        ]
+        
+        table = Table(table_data, colWidths=colWidths)
+        
+        # Build style commands
+        style_commands = [
             ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.lightgrey]),
-            # Highlight important planet rows
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            # First, set all rows to white
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-            ('BACKGROUND', (0, 1), (-1, -1), lambda i,j: colors.lightgreen if table_data[i+1][-1] == 'Yes' else colors.white)
-        ]))
+        ]
+        
+        # Highlight rows based on importance and current transit
+        for i, row in enumerate(table_data[1:], start=1):
+            important = row[-2] == 'Yes'  # Second last column
+            current_transit = row[-1] == 'Yes'  # Last column
+            
+            if important and current_transit:
+                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.orange))
+            elif current_transit:
+                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.yellow))
+            elif important:
+                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
+        
+        table.setStyle(TableStyle(style_commands))
         elements.append(table)
         
         doc.build(elements)
