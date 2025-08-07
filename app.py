@@ -6,66 +6,94 @@ from geopy.geocoders import Nominatim
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
+import streamlit as st
 import matplotlib.pyplot as plt
+from io import BytesIO
 
-# Input
-date_str = "7-8-2025"
-time_str = "9:15"
-location_str = "Mumbai, India"
+# Initialize Streamlit app
+st.set_page_config(page_title="Astro Planetary Report", layout="centered")
 
-# Convert date and time to datetime object
-dt = datetime.strptime(f"{date_str} {time_str}", "%d-%m-%Y %H:%M")
+# Title
+st.title("🪐 Planetary Time & Price Astro Report")
 
-# Geolocation
-geolocator = Nominatim(user_agent="astro_app")
-location = geolocator.geocode(location_str)
-latitude = location.latitude
-longitude = location.longitude
+# Input: Date, Time, Location
+with st.form("astro_form"):
+    date_input = st.date_input("Select Date", value=datetime.now().date())
+    time_input = st.time_input("Select Time", value=datetime.now().time())
+    location_input = st.text_input("Enter Location (City, Country)", value="Mumbai, India")
+    submitted = st.form_submit_button("Generate Astro Report")
 
-# Timezone
-tf = TimezoneFinder()
-timezone_str = tf.timezone_at(lng=longitude, lat=latitude)
-timezone = pytz.timezone(timezone_str)
-dt_local = timezone.localize(dt)
-jd_ut = swe.julday(dt_local.year, dt_local.month, dt_local.day, dt_local.hour + dt_local.minute / 60.0)
-swe.set_topo(longitude, latitude)  # Set observer location
+if submitted:
+    try:
+        # Get timezone from location
+        geolocator = Nominatim(user_agent="astro_app")
+        location = geolocator.geocode(location_input)
 
-# Get planetary positions
-planets = ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Rahu", "Ketu"]
-planet_codes = [swe.SUN, swe.MOON, swe.MERCURY, swe.VENUS, swe.MARS, swe.JUPITER, swe.SATURN, swe.MEAN_NODE, swe.TRUE_NODE]
-positions = {}
+        if not location:
+            st.error("Location not found. Please try again.")
+        else:
+            lat = location.latitude
+            lon = location.longitude
 
-for i, p in enumerate(planets):
-    if p == "Ketu":
-        lon = (360 + swe.calc_ut(jd_ut, swe.MEAN_NODE)[0][0] - 180) % 360
-    else:
-        lon = swe.calc_ut(jd_ut, planet_codes[i])[0][0]
-    positions[p] = lon
+            tf = TimezoneFinder()
+            timezone_str = tf.timezone_at(lng=lon, lat=lat)
+            tz = pytz.timezone(timezone_str)
 
-# Display output
-print(f"\nAstrological Data for {location_str} at {dt_local.strftime('%Y-%m-%d %H:%M')} ({timezone_str})")
-for planet, pos in positions.items():
-    print(f"{planet}: {round(pos, 2)}°")
+            dt = tz.localize(datetime.combine(date_input, time_input))
+            julian_day = swe.julday(dt.year, dt.month, dt.day, dt.hour + dt.minute / 60)
 
-# Save as PDF
-pdf_file = "/mnt/data/astro_chart.pdf"
-doc = SimpleDocTemplate(pdf_file, pagesize=A4)
-styles = getSampleStyleSheet()
-story = [Paragraph(f"Astrological Chart for {location_str} on {dt_local.strftime('%d-%b-%Y %H:%M %Z')}", styles['Title']), Spacer(1, 12)]
+            planet_names = [
+                "Sun", "Moon", "Mercury", "Venus", "Mars",
+                "Jupiter", "Saturn", "Rahu", "Ketu"
+            ]
 
-for planet, pos in positions.items():
-    story.append(Paragraph(f"{planet}: {round(pos, 2)}°", styles['Normal']))
+            planet_numbers = [
+                swe.SUN, swe.MOON, swe.MERCURY, swe.VENUS, swe.MARS,
+                swe.JUPITER, swe.SATURN, swe.MEAN_NODE, -1  # -1 for Ketu
+            ]
 
-doc.build(story)
+            planetary_positions = []
 
-# Save as PNG (Pie Chart)
-png_file = "/mnt/data/astro_chart.png"
-labels = list(positions.keys())
-sizes = list(positions.values())
-plt.figure(figsize=(8, 8))
-plt.pie([1] * len(sizes), labels=[f"{k} ({round(v, 1)}°)" for k, v in positions.items()])
-plt.title("Planetary Positions")
-plt.savefig(png_file)
-plt.close()
+            for i, p in enumerate(planet_numbers):
+                if p == -1:  # Ketu
+                    rahu = swe.calc_ut(julian_day, swe.MEAN_NODE)[0]
+                    ketu = (rahu + 180) % 360
+                    planetary_positions.append((planet_names[i], round(ketu, 2)))
+                else:
+                    pos = swe.calc_ut(julian_day, p)[0]
+                    planetary_positions.append((planet_names[i], round(pos, 2)))
 
-print(f"\n✅ PDF and PNG generated.")
+            # Display Results
+            st.subheader("🪐 Planetary Positions:")
+            for planet, pos in planetary_positions:
+                st.write(f"**{planet}**: {pos}°")
+
+            # Plot planetary positions (optional)
+            fig, ax = plt.subplots()
+            labels = [p[0] for p in planetary_positions]
+            values = [p[1] for p in planetary_positions]
+            ax.barh(labels, values)
+            ax.set_xlabel("Degree")
+            ax.set_title("Planetary Positions (Degrees)")
+            st.pyplot(fig)
+
+            # Generate PDF
+            pdf_buffer = BytesIO()
+            doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
+            styles = getSampleStyleSheet()
+            elements = []
+
+            elements.append(Paragraph("🪐 Astro Planetary Report", styles["Title"]))
+            elements.append(Spacer(1, 12))
+            elements.append(Paragraph(f"Location: {location_input}", styles["Normal"]))
+            elements.append(Paragraph(f"Date/Time: {dt.strftime('%Y-%m-%d %H:%M:%S %Z')}", styles["Normal"]))
+            elements.append(Spacer(1, 12))
+
+            for planet, pos in planetary_positions:
+                elements.append(Paragraph(f"{planet}: {pos}°", styles["Normal"]))
+
+            doc.build(elements)
+            st.download_button("📄 Download PDF Report", data=pdf_buffer.getvalue(), file_name="astro_report.pdf")
+
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
