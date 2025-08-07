@@ -1,91 +1,96 @@
+# streamlit_app.py
+
 import streamlit as st
-from skyfield.api import load, Topos
 from datetime import datetime
-import pytz
-
-# ------------------ Input UI -------------------
-st.title("🪐 Astro Intraday Levels Generator")
-
-symbol = st.text_input("Symbol", value="NIFTY")
-cmp = st.number_input("CMP (Current Market Price)", value=24344.0)
-input_datetime = st.text_input("Date & Time (e.g., 7-8-2025 9:15 am)", value="7-8-2025 9:15 am")
-location = st.text_input("Location (City, Country)", value="Mumbai, India")
-
-# ------------------ Parse datetime -------------------
-try:
-    local = pytz.timezone("Asia/Kolkata")
-    dt = datetime.strptime(input_datetime, "%d-%m-%Y %I:%M %p")
-    dt = local.localize(dt)
-except:
-    st.error("❌ Invalid date format. Use dd-mm-yyyy hh:mm am/pm format.")
-    st.stop()
-
-# ------------------ Astro Engine -------------------
-ts = load.timescale()
-t = ts.from_datetime(dt)
-eph = load('de421.bsp')
-
-planets = {
-    'Sun': eph['sun'],
-    'Moon': eph['moon'],
-    'Mercury': eph['mercury'],
-    'Venus': eph['venus'],
-    'Mars': eph['mars'],
-    'Jupiter': eph['jupiter barycenter'],
-    'Saturn': eph['saturn barycenter']
-}
-
-# ------------------ Observer's Location -------------------
-topos = Topos(latitude_degrees=18.975, longitude_degrees=72.825833)  # Mumbai
-
-# ------------------ Compute Astro Levels -------------------
-st.subheader(f"🧮 Astro Intraday Levels for {symbol.upper()} at {input_datetime} ({location})")
-
-astro_levels = []
-for name, body in planets.items():
-    astrometric = (eph['earth'] + topos).at(t).observe(body).apparent()
-    lon, lat, distance = astrometric.ecliptic_latlon()
-    deg = lon.degrees
-
-    # Intraday Price Levels (Gann-style)
-    upper = cmp + (deg * cmp / 360)
-    lower = cmp - (deg * cmp / 360)
-    astro_levels.append((name, round(deg, 2), round(upper, 2), round(lower, 2)))
-
-# ------------------ Display Table -------------------
-import pandas as pd
-
-df = pd.DataFrame(astro_levels, columns=["Planet", "Degree", "Upper Level", "Lower Level"])
-st.dataframe(df)
-
-# ------------------ Option to Download -------------------
-from io import BytesIO
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from skyfield.api import load, Topos
+from pytz import timezone
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+import io
 
-if st.button("📥 Download PDF"):
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
-    styles = getSampleStyleSheet()
-    elements = []
+st.set_page_config(page_title="Astro Market Report", layout="centered")
 
-    elements.append(Paragraph(f"Astro Intraday Levels for {symbol.upper()}", styles['Title']))
-    elements.append(Paragraph(f"Date & Time: {input_datetime}", styles['Normal']))
-    elements.append(Paragraph(f"Location: {location}", styles['Normal']))
-    elements.append(Paragraph(f"CMP: {cmp}", styles['Normal']))
+st.title("🔭 Astro Market Transit Report")
 
-    data = [["Planet", "Degree", "Upper Level", "Lower Level"]] + astro_levels
-    table = Table(data, hAlign='LEFT')
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.grey),
-        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-        ('ALIGN',(0,0),(-1,-1),'CENTER'),
-        ('GRID', (0,0), (-1,-1), 1, colors.black),
-    ]))
-    elements.append(table)
+# --- 1. INPUT ---
+st.subheader("📅 Enter Date & Time")
+date_input = st.date_input("Select Date", datetime.now().date())
+time_input = st.time_input("Select Time", datetime.now().time())
 
-    doc.build(elements)
-    st.download_button(label="📄 Download PDF", data=buffer.getvalue(), file_name=f"{symbol}_astro_levels.pdf", mime="application/pdf")
+st.subheader("📍 Location")
+location = st.text_input("Enter Location (e.g., Mumbai, India)", "Mumbai, India")
 
+st.subheader("📈 Market Levels (Optional)")
+nifty_high = st.number_input("Nifty High", value=24640)
+nifty_low = st.number_input("Nifty Low", value=24344)
+
+# --- 2. BUTTON ---
+if st.button("🔁 Generate Report"):
+
+    # --- 3. ASTRO LOGIC ---
+    try:
+        from geopy.geocoders import Nominatim
+        geolocator = Nominatim(user_agent="geoapi")
+        location_obj = geolocator.geocode(location)
+        if not location_obj:
+            st.error("Location not found.")
+        else:
+            latitude = location_obj.latitude
+            longitude = location_obj.longitude
+            dt = datetime.combine(date_input, time_input)
+            ts = load.timescale()
+            t = ts.utc(dt.year, dt.month, dt.day, dt.hour, dt.minute)
+            eph = load('de421.bsp')
+
+            planets = {
+                'Sun': eph['sun'],
+                'Moon': eph['moon'],
+                'Mercury': eph['mercury'],
+                'Venus': eph['venus'],
+                'Mars': eph['mars'],
+                'Jupiter': eph['jupiter barycenter'],
+                'Saturn': eph['saturn barycenter']
+            }
+
+            observer = Topos(latitude_degrees=latitude, longitude_degrees=longitude)
+            astrological_data = []
+
+            for name, planet in planets.items():
+                astrometric = eph['earth'] + observer
+                planet_pos = astrometric.at(t).observe(planet).apparent()
+                ra, dec, distance = planet_pos.radec()
+                astrological_data.append([name, round(ra.hours, 2), round(dec.degrees, 2)])
+
+            # --- 4. SHOW TABLE ---
+            st.subheader("📊 Planetary Positions")
+            st.table([["Planet", "RA (hrs)", "Dec (deg)"]] + astrological_data)
+
+            # --- 5. DOWNLOAD REPORT PDF ---
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=letter)
+            styles = getSampleStyleSheet()
+            elements = []
+
+            elements.append(Paragraph("Astro Market Transit Report", styles['Title']))
+            elements.append(Paragraph(f"Date: {dt.strftime('%Y-%m-%d %H:%M')} | Location: {location}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+
+            table_data = [["Planet", "RA (hrs)", "Dec (deg)"]] + astrological_data
+            elements.append(Table(table_data))
+
+            elements.append(Spacer(1, 12))
+            elements.append(Paragraph(f"Nifty High: {nifty_high} | Nifty Low: {nifty_low}", styles['Normal']))
+
+            doc.build(elements)
+            buffer.seek(0)
+
+            st.download_button(
+                label="📥 Download Report as PDF",
+                data=buffer,
+                file_name=f"astro_market_report_{dt.strftime('%Y%m%d_%H%M')}.pdf",
+                mime='application/pdf'
+            )
+
+    except Exception as e:
+        st.error(f"Error: {e}")
