@@ -325,19 +325,31 @@ if generate_report:
     # Display the table with highlighting
     st.markdown('<div class="sub-header">Intraday Swing Range</div>', unsafe_allow_html=True)
     
-    # Define styling function
-    def highlight_rows(row):
-        if row['Current Transit'] == 'Yes' and row['Important'] == 'Yes':
-            return ['both-row'] * len(row)
-        elif row['Current Transit'] == 'Yes':
-            return ['current-transit-row'] * len(row)
+    # Create a copy of the dataframe for styling
+    styled_df = df.copy()
+    
+    # Apply styling using pandas Styler
+    def highlight_important(s):
+        return ['background-color: lightgreen; font-weight: bold' if v == 'Yes' else '' for v in s]
+    
+    def highlight_current_transit(s):
+        return ['background-color: yellow' if v == 'Yes' else '' for v in s]
+    
+    def highlight_both(row):
+        if row['Important'] == 'Yes' and row['Current Transit'] == 'Yes':
+            return ['background-color: orange; font-weight: bold'] * len(row)
         elif row['Important'] == 'Yes':
-            return ['important-row'] * len(row)
+            return ['background-color: lightgreen; font-weight: bold'] * len(row)
+        elif row['Current Transit'] == 'Yes':
+            return ['background-color: yellow'] * len(row)
         else:
             return [''] * len(row)
     
-    # Apply styling and display
-    styled_df = df.style.apply(highlight_rows, axis=1).set_properties(**{'font-size': '1.1rem'})
+    # Apply the styling
+    styled_df = styled_df.style.apply(highlight_both, axis=1)
+    styled_df = styled_df.set_properties(**{'font-size': '1.1rem'})
+    
+    # Display the styled dataframe
     st.dataframe(styled_df, use_container_width=True)
     
     # --- PDF Generation ---
