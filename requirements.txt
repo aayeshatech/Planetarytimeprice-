@@ -2,4 +2,3 @@ streamlit
 flatlib
 pyswisseph
 pytz
-reportlab
