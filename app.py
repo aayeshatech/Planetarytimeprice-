@@ -1,96 +1,94 @@
-# streamlit_app.py
-
 import streamlit as st
 from datetime import datetime
-from skyfield.api import load, Topos
-from pytz import timezone
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, Spacer
+from io import BytesIO
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.pagesizes import letter
-import io
+import matplotlib.pyplot as plt
+import base64
 
-st.set_page_config(page_title="Astro Market Report", layout="centered")
+# === Layout ===
+st.set_page_config(page_title="Astro Report Generator", layout="centered")
 
-st.title("🔭 Astro Market Transit Report")
+st.title("🪐 Astrology Report Generator")
 
-# --- 1. INPUT ---
-st.subheader("📅 Enter Date & Time")
+# Input: Date, Time
 date_input = st.date_input("Select Date", datetime.now().date())
 time_input = st.time_input("Select Time", datetime.now().time())
 
-st.subheader("📍 Location")
-location = st.text_input("Enter Location (e.g., Mumbai, India)", "Mumbai, India")
+# Input: Location
+location_input = st.text_input("Enter Location (City, Country)", value="Mumbai, India")
 
-st.subheader("📈 Market Levels (Optional)")
-nifty_high = st.number_input("Nifty High", value=24640)
-nifty_low = st.number_input("Nifty Low", value=24344)
+# Combine datetime
+input_datetime = datetime.combine(date_input, time_input)
 
-# --- 2. BUTTON ---
-if st.button("🔁 Generate Report"):
+# Generate Button
+generate = st.button("🔮 Generate Report")
 
-    # --- 3. ASTRO LOGIC ---
-    try:
-        from geopy.geocoders import Nominatim
-        geolocator = Nominatim(user_agent="geoapi")
-        location_obj = geolocator.geocode(location)
-        if not location_obj:
-            st.error("Location not found.")
-        else:
-            latitude = location_obj.latitude
-            longitude = location_obj.longitude
-            dt = datetime.combine(date_input, time_input)
-            ts = load.timescale()
-            t = ts.utc(dt.year, dt.month, dt.day, dt.hour, dt.minute)
-            eph = load('de421.bsp')
+# Placeholder for results
+if generate:
+    st.subheader("🗓️ Astro Report for:")
+    st.write(f"**Date & Time:** {input_datetime.strftime('%d %B %Y, %I:%M %p')}")
+    st.write(f"**Location:** {location_input}")
 
-            planets = {
-                'Sun': eph['sun'],
-                'Moon': eph['moon'],
-                'Mercury': eph['mercury'],
-                'Venus': eph['venus'],
-                'Mars': eph['mars'],
-                'Jupiter': eph['jupiter barycenter'],
-                'Saturn': eph['saturn barycenter']
-            }
+    # === Astro Dummy Data (replace with real astro logic or API call) ===
+    st.markdown("#### 🌟 Planetary Impact Summary")
+    data = {
+        "Planet": ["Sun", "Moon", "Mercury", "Venus", "Mars"],
+        "Sign": ["Leo", "Cancer", "Leo", "Virgo", "Taurus"],
+        "Nakshatra": ["Magha", "Pushya", "Ashlesha", "Uttara Phalguni", "Rohini"],
+        "Effect": ["Strong", "Neutral", "Favorable", "Strong", "Aggressive"]
+    }
 
-            observer = Topos(latitude_degrees=latitude, longitude_degrees=longitude)
-            astrological_data = []
+    for i in range(len(data["Planet"])):
+        st.write(f"**{data['Planet'][i]}** in {data['Sign'][i]} ({data['Nakshatra'][i]}) → *{data['Effect'][i]}*")
 
-            for name, planet in planets.items():
-                astrometric = eph['earth'] + observer
-                planet_pos = astrometric.at(t).observe(planet).apparent()
-                ra, dec, distance = planet_pos.radec()
-                astrological_data.append([name, round(ra.hours, 2), round(dec.degrees, 2)])
+    # === Chart (sample plot) ===
+    st.markdown("#### 📊 Planetary Strength Chart")
 
-            # --- 4. SHOW TABLE ---
-            st.subheader("📊 Planetary Positions")
-            st.table([["Planet", "RA (hrs)", "Dec (deg)"]] + astrological_data)
+    fig, ax = plt.subplots()
+    strengths = [90, 60, 75, 80, 40]
+    ax.bar(data["Planet"], strengths)
+    ax.set_ylabel("Strength (%)")
+    ax.set_ylim([0, 100])
+    ax.set_title("Planetary Strengths")
 
-            # --- 5. DOWNLOAD REPORT PDF ---
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=letter)
-            styles = getSampleStyleSheet()
-            elements = []
+    st.pyplot(fig)
 
-            elements.append(Paragraph("Astro Market Transit Report", styles['Title']))
-            elements.append(Paragraph(f"Date: {dt.strftime('%Y-%m-%d %H:%M')} | Location: {location}", styles['Normal']))
-            elements.append(Spacer(1, 12))
+    # === Download PDF ===
+    def generate_pdf():
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        styles = getSampleStyleSheet()
+        story = []
 
-            table_data = [["Planet", "RA (hrs)", "Dec (deg)"]] + astrological_data
-            elements.append(Table(table_data))
+        story.append(Paragraph("Astrological Report", styles['Title']))
+        story.append(Spacer(1, 12))
+        story.append(Paragraph(f"Date & Time: {input_datetime.strftime('%d %B %Y, %I:%M %p')}", styles['Normal']))
+        story.append(Paragraph(f"Location: {location_input}", styles['Normal']))
+        story.append(Spacer(1, 12))
+        story.append(Paragraph("Planetary Effects:", styles['Heading2']))
 
-            elements.append(Spacer(1, 12))
-            elements.append(Paragraph(f"Nifty High: {nifty_high} | Nifty Low: {nifty_low}", styles['Normal']))
+        for i in range(len(data["Planet"])):
+            story.append(Paragraph(
+                f"{data['Planet'][i]} in {data['Sign'][i]} ({data['Nakshatra'][i]}) → {data['Effect'][i]}",
+                styles['Normal']
+            ))
 
-            doc.build(elements)
-            buffer.seek(0)
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
 
-            st.download_button(
-                label="📥 Download Report as PDF",
-                data=buffer,
-                file_name=f"astro_market_report_{dt.strftime('%Y%m%d_%H%M')}.pdf",
-                mime='application/pdf'
-            )
+    pdf = generate_pdf()
+    st.download_button("📄 Download PDF Report", data=pdf, file_name="astro_report.pdf", mime="application/pdf")
 
-    except Exception as e:
-        st.error(f"Error: {e}")
+    # === Download PNG (chart) ===
+    def get_image_download_link(fig, filename="astro_chart.png"):
+        img_bytes = BytesIO()
+        fig.savefig(img_bytes, format='png')
+        img_bytes.seek(0)
+        b64 = base64.b64encode(img_bytes.read()).decode()
+        href = f'<a href="data:image/png;base64,{b64}" download="{filename}">🖼️ Download PNG Chart</a>'
+        return href
+
+    st.markdown(get_image_download_link(fig), unsafe_allow_html=True)
