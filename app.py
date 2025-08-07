@@ -1,80 +1,90 @@
 import streamlit as st
 from datetime import datetime
-import pytz
+from pytz import timezone
+import swisseph as swe
+import pandas as pd
 from io import BytesIO
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
-import matplotlib.pyplot as plt
 
-# Sample function to simulate astro data (replace with real astrology logic/API)
-def get_astro_data(date_str, location):
-    return [
-        ["Planet", "Sign", "Nakshatra", "Degree", "Sub Lord", "Impact"],
-        ["Moon", "Cancer", "Pushya", "13°22'", "Mercury", "Bullish"],
-        ["Sun", "Leo", "Magha", "5°13'", "Venus", "Bearish"],
-        ["Mars", "Gemini", "Ardra", "28°47'", "Rahu", "Volatile"]
-    ]
+# Load ephemeris
+swe.set_ephe_path("/usr/share/ephe")  # You may need to adjust this
 
-# Convert data to PDF
-def create_pdf(data, filename="astro_output.pdf"):
+def price_to_degree(price, base=360):
+    return (price % base)
+
+def degree_to_price(degree, base=360):
+    return degree + (base * (int(price) // base))
+
+def get_planet_positions(jd):
+    planets = {
+        'Sun': swe.SUN, 'Moon': swe.MOON, 'Mercury': swe.MERCURY,
+        'Venus': swe.VENUS, 'Mars': swe.MARS, 'Jupiter': swe.JUPITER,
+        'Saturn': swe.SATURN, 'Rahu (Mean)': swe.MEAN_NODE, 'Ketu (Mean)': swe.MEAN_NODE
+    }
+
+    positions = []
+    for name, pid in planets.items():
+        lon, _ = swe.calc_ut(jd, pid)
+        if name == 'Ketu (Mean)':
+            lon = (lon + 180) % 360
+        positions.append({
+            'Planet': name,
+            'Degree': round(lon, 2)
+        })
+
+    return pd.DataFrame(positions)
+
+def create_pdf(dataframe):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
-    styles = getSampleStyleSheet()
-    elements = [Paragraph("Astro Analysis Output", styles['Title']), Spacer(1, 12)]
-    table = Table(data)
+    elements = []
+    style = getSampleStyleSheet()
+    title = Paragraph("Planetary Degree to Price Mapping", style['Title'])
+    elements.append(title)
+    table_data = [list(dataframe.columns)] + dataframe.values.tolist()
+    table = Table(table_data)
     table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.lavender),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0,0), (-1,-1), 1, colors.black),
     ]))
     elements.append(table)
     doc.build(elements)
     buffer.seek(0)
     return buffer
 
-# Convert table to PNG (PNJ as requested)
-def create_image(data):
-    fig, ax = plt.subplots(figsize=(10, len(data)*0.5))
-    ax.axis('off')
-    table = ax.table(cellText=data, loc='center', cellLoc='center')
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1, 1.5)
-    img_buffer = BytesIO()
-    plt.savefig(img_buffer, format='png', bbox_inches='tight')
-    img_buffer.seek(0)
-    return img_buffer
+# ---- Streamlit App ----
+st.title("📈 Intraday Astro-Gann Price Degree Calculator")
 
-# Streamlit app
-st.set_page_config(layout="centered")
-st.title("🪐 Astro Input & Analysis")
+symbol = st.text_input("Enter Symbol (e.g., NIFTY)", value="NIFTY")
+price = st.number_input("Enter CMP Price", value=22200.0)
+date_input = st.date_input("Select Date", value=datetime.now().date())
+time_input = st.time_input("Select Time (IST)", value=datetime.now().time())
+location = st.text_input("Enter Location (City)", value="Mumbai")
 
-# Input fields
-date_input = st.text_input("Enter Date & Time (e.g. 7-8-2025 9:15 AM):", "7-8-2025 9:15 AM")
-location_input = st.text_input("Enter Location:", "Mumbai, India")
+if st.button("Calculate Astro Mapping"):
+    # Convert to UTC datetime
+    dt = datetime.combine(date_input, time_input)
+    tz = timezone("Asia/Kolkata")
+    dt_local = tz.localize(dt)
+    dt_utc = dt_local.astimezone(timezone("UTC"))
+    jd = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute / 60.0)
 
-if st.button("Generate Astro Report"):
-    try:
-        # Parse datetime input
-        dt = datetime.strptime(date_input, "%d-%m-%Y %I:%M %p")
-        astro_data = get_astro_data(dt.strftime("%Y-%m-%d %H:%M"), location_input)
-        
-        # Display table
-        st.subheader("🧿 Astro Timeline Table")
-        st.table(astro_data)
+    df = get_planet_positions(jd)
+    df['Mapped Price'] = df['Degree'].apply(lambda d: round(degree_to_price(d, base=360), 2))
+    df['Price Degree'] = df['Degree'].apply(lambda d: round(d, 2))
 
-        # Generate PDF
-        pdf_file = create_pdf(astro_data)
-        st.download_button("📥 Download PDF", data=pdf_file, file_name="astro_report.pdf", mime="application/pdf")
+    st.subheader("🪐 Planetary Degrees and Price Mapping")
+    st.dataframe(df)
 
-        # Generate PNG
-        image_file = create_image(astro_data)
-        st.download_button("📥 Download PNJ", data=image_file, file_name="astro_report.pnj", mime="image/png")
+    # PDF download
+    pdf_data = create_pdf(df)
+    st.download_button("📄 Download PDF", data=pdf_data, file_name=f"{symbol}_astro_mapping.pdf", mime="application/pdf")
 
-    except Exception as e:
-        st.error(f"Error: {e}")
