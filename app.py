@@ -5,20 +5,25 @@ from geopy.geocoders import Nominatim
 import pytz
 import pandas as pd
 
-# ---------------------------
+# ---------- Location Finder ----------
 @st.cache_data(show_spinner=False)
 def get_location_coords(location_name):
     geolocator = Nominatim(user_agent="astro-app")
     location = geolocator.geocode(location_name)
-    if location:
-        timezone_str = pytz.country_timezones(location.raw['address']['country_code'])[0]
+    if location and 'country_code' in location.raw.get('address', {}):
+        country_code = location.raw['address']['country_code']
+        timezone_str = pytz.country_timezones(country_code)[0]
         return location.latitude, location.longitude, timezone_str
+    elif location:
+        return location.latitude, location.longitude, 'UTC'
     return None, None, None
 
+# ---------- Planet Loader ----------
 @st.cache_data(show_spinner=False)
 def load_planets():
-    return load('de421.bsp')  # you can use 'de422.bsp' for extended range
+    return load('de421.bsp')
 
+# ---------- Position Calculator ----------
 def get_planet_positions(date_str, time_str, lat, lon, tz_str):
     planets = load_planets()
     earth = planets['earth']
@@ -47,26 +52,32 @@ def get_planet_positions(date_str, time_str, lat, lon, tz_str):
 
     return pd.DataFrame(data)
 
-# ---------------------------
-st.set_page_config(page_title="Astro Timeline Tool", layout="centered")
-st.title("🪐 Planetary Timeline - Astrology Astro Date Tool")
+# ---------- Streamlit UI ----------
+st.set_page_config(page_title="Astro Price Timeline Tool", layout="centered")
+st.title("🪐 Planetary Timeline for Symbol & Price")
 
+# Inputs: Symbol + Price
+symbol = st.text_input("🔤 Enter Symbol (e.g., Gold, BTC)", "Gold")
+price = st.number_input("💰 Enter Price (optional)", min_value=0.0, value=0.0, step=0.1)
+
+# Date & Time
 col1, col2 = st.columns(2)
 with col1:
     date_input = st.date_input("📅 Select Date", datetime.now()).strftime("%d-%m-%Y")
 with col2:
     time_input = st.time_input("⏰ Select Time", datetime.now().time()).strftime("%H:%M")
 
+# Location
 location_input = st.text_input("📍 Location (e.g., Mumbai, India)", "Mumbai, India")
 
-if st.button("🔮 Show Planet Positions"):
+if st.button("🔮 Calculate Planetary Transit"):
     lat, lon, tz_str = get_location_coords(location_input)
     if lat is None:
         st.error("❌ Location not found.")
     else:
         df = get_planet_positions(date_input, time_input, lat, lon, tz_str)
-        st.markdown("### 🌠 Planetary Positions")
+        st.markdown(f"### 📈 Intraday Astro Data for **{symbol.upper()}** at ₹{price}")
         st.dataframe(df)
 
         csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("⬇️ Download as CSV", data=csv, file_name="planet_positions.csv", mime="text/csv")
+        st.download_button("⬇️ Download CSV", data=csv, file_name=f"{symbol}_astro_{date_input}.csv", mime="text/csv")
