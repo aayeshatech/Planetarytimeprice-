@@ -1,80 +1,79 @@
 import streamlit as st
+from skyfield.api import Loader, Topos
 from datetime import datetime
-from skyfield.api import load, Topos
-from geopy.geocoders import Nominatim
+import pytz
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-import os
+import io
+
+# Skyfield loader
+load = Loader('./skyfield_data')
+planets = load('de421.bsp')
+ts = load.timescale()
+
+# Planet list
+planet_names = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn']
 
 # Title
-st.title("🪐 Planetary Time & Location Viewer")
+st.title("🪐 Planetary Position Report")
 
-# Input form
-with st.form("input_form"):
-    input_datetime_str = st.text_input("Enter Date & Time (e.g., 7-8-2025 9:15 AM)", "7-8-2025 9:15 AM")
-    location_input = st.text_input("Enter Location (e.g., Mumbai, India)", "Mumbai, India")
-    submitted = st.form_submit_button("Show Planetary Info")
+# User inputs
+date_input = st.date_input("Enter Date", datetime.now().date())
+time_input = st.time_input("Enter Time", datetime.now().time())
+location_input = st.text_input("Enter Location (City, Country)", "Mumbai, India")
 
-if submitted:
-    try:
-        # Parse input datetime
-        dt = datetime.strptime(input_datetime_str, "%d-%m-%Y %I:%M %p")
+# Geocoder
+from geopy.geocoders import Nominatim
+geolocator = Nominatim(user_agent="astro_app")
 
-        # Geocode location
-        geolocator = Nominatim(user_agent="planetary_app")
-        location = geolocator.geocode(location_input)
-        if not location:
-            st.error("Could not find location.")
-        else:
-            latitude = location.latitude
-            longitude = location.longitude
-            st.success(f"Coordinates: {latitude}, {longitude}")
+# Process button
+if st.button("Generate Report"):
+    # Convert input to datetime
+    dt = datetime.combine(date_input, time_input)
 
-            # Skyfield load
-            eph = load('de421.bsp')
-            ts = load.timescale()
-            t = ts.utc(dt.year, dt.month, dt.day, dt.hour, dt.minute)
+    # Make datetime timezone-aware (UTC)
+    local_tz = pytz.timezone('Asia/Kolkata')  # You can change based on location
+    local_dt = local_tz.localize(dt)
+    utc_dt = local_dt.astimezone(pytz.utc)
 
-            planets = {
-                "Sun": eph["sun"],
-                "Moon": eph["moon"],
-                "Mercury": eph["mercury"],
-                "Venus": eph["venus"],
-                "Mars": eph["mars"],
-                "Jupiter": eph["jupiter barycenter"],
-                "Saturn": eph["saturn barycenter"]
-            }
+    # Skyfield time object
+    t = ts.utc(utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour, utc_dt.minute)
 
-            earth = eph["earth"]
-            observer = earth + Topos(latitude_degrees=latitude, longitude_degrees=longitude)
+    # Resolve location
+    location = geolocator.geocode(location_input)
+    if not location:
+        st.error("Location not found.")
+    else:
+        observer = Topos(latitude_degrees=location.latitude, longitude_degrees=location.longitude)
+        earth = planets['earth']
+        obs = earth + observer
 
-            planet_data = []
-            for name, planet in planets.items():
-                astrometric = observer.at(t).observe(planet).apparent()
-                alt, az, distance = astrometric.altaz()
-                planet_data.append((name, alt.degrees, az.degrees))
+        # Generate planetary positions
+        output = []
+        for name in planet_names:
+            astrometric = obs.at(t).observe(planets[name])
+            apparent = astrometric.apparent()
+            ra, dec, distance = apparent.radec()
+            alt, az, _ = apparent.altaz()
+            output.append((name, round(az.degrees, 2), round(alt.degrees, 2)))
 
-            # Show results
-            st.subheader("🪐 Planetary Positions (Altitude & Azimuth):")
-            for name, alt, az in planet_data:
-                st.write(f"{name}: Altitude = {alt:.2f}°, Azimuth = {az:.2f}°")
+        # Show result
+        st.subheader("🌌 Planetary Positions")
+        for planet, az, alt in output:
+            st.write(f"**{planet}** — Azimuth: {az}°, Altitude: {alt}°")
 
-            # Create PDF
-            pdf_filename = "/mnt/data/planetary_positions.pdf"
-            doc = SimpleDocTemplate(pdf_filename)
-            styles = getSampleStyleSheet()
-            elements = [Paragraph("Planetary Positions", styles["Title"]), Spacer(1, 12)]
+        # Create PDF
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer)
+        styles = getSampleStyleSheet()
+        elements = [Paragraph("🪐 Planetary Report", styles['Title']),
+                    Paragraph(f"Date: {dt.strftime('%Y-%m-%d %H:%M')} ({location_input})", styles['Normal']),
+                    Spacer(1, 12)]
+        for planet, az, alt in output:
+            elements.append(Paragraph(f"{planet} — Azimuth: {az}°, Altitude: {alt}°", styles['Normal']))
+            elements.append(Spacer(1, 6))
+        doc.build(elements)
+        buffer.seek(0)
 
-            for name, alt, az in planet_data:
-                text = f"{name}: Altitude = {alt:.2f}°, Azimuth = {az:.2f}°"
-                elements.append(Paragraph(text, styles["Normal"]))
-                elements.append(Spacer(1, 6))
-
-            doc.build(elements)
-
-            st.success("PDF generated!")
-            st.download_button(label="📄 Download PDF", file_name="planetary_positions.pdf", mime="application/pdf", data=open(pdf_filename, "rb").read())
-
-    except ValueError as e:
-        st.error(f"Error: {str(e)}. Ensure your date format is: `7-8-2025 9:15 AM`")
-
+        # Download PDF
+        st.download_button("📄 Download PDF", data=buffer, file_name="planetary_report.pdf", mime="application/pdf")
