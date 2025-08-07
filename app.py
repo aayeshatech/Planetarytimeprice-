@@ -66,6 +66,14 @@ st.markdown("""
         border: 2px solid #f44336 !important;
         box-shadow: 0 0 10px rgba(244, 67, 54, 0.5) !important;
     }
+    .favorable-row {
+        background-color: #c8e6c9 !important;
+        border-left: 4px solid #4caf50 !important;
+    }
+    .negative-row {
+        background-color: #ffcdd2 !important;
+        border-left: 4px solid #f44336 !important;
+    }
     .planet-icon {
         display: inline-block;
         margin-right: 5px;
@@ -82,6 +90,13 @@ st.markdown("""
         right: -10px;
         color: #ff9800;
         font-size: 1.2rem;
+    }
+    .transit-box {
+        background-color: #f5f5f5;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border: 1px solid #e0e0e0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -106,6 +121,9 @@ font_size = st.slider("Table Font Size", min_value=12, max_value=24, value=16, s
 
 # Background color picker for the intraday swing range box
 box_bg_color = st.color_picker("Background Color for Intraday Swing Range Box", "#e8eaf6")
+
+# Swing range multiplier to adjust for higher market fluctuations
+swing_range_multiplier = st.slider("Swing Range Multiplier", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
 
 # Generate button
 generate_report = st.button("Generate Report", key="generate_btn")
@@ -152,6 +170,99 @@ def adjust_timing_to_market(start_time, end_time):
         return None, None
     
     return start_time, end_time
+
+# Function to determine if a planet's transit is favorable or negative
+def get_transit_nature(planet, degree):
+    # Define favorable and unfavorable degrees for each planet
+    favorable_degrees = {
+        "Sun": [(0, 30), (120, 150), (240, 270)],  # Aries, Leo, Sagittarius
+        "Moon": [(60, 90), (150, 180), (270, 300)],  # Taurus, Cancer, Pisces
+        "Mercury": [(60, 90), (180, 210), (300, 330)],  # Taurus, Virgo, Capricorn
+        "Venus": [(30, 60), (150, 180), (270, 300)],  # Taurus, Libra, Pisces
+        "Mars": [(0, 30), (90, 120), (240, 270)],  # Aries, Scorpio, Capricorn
+        "Jupiter": [(0, 30), (120, 150), (240, 270)],  # Aries, Leo, Sagittarius
+        "Saturn": [(60, 90), (210, 240), (300, 330)]  # Taurus, Libra, Aquarius
+    }
+    
+    # Check if the planet's degree falls in any favorable range
+    for start, end in favorable_degrees.get(planet, []):
+        if start <= degree <= end:
+            return "Favorable"
+    
+    # If not in favorable range, check for unfavorable ranges (opposite signs)
+    unfavorable_degrees = {
+        "Sun": [(90, 120), (210, 240), (330, 360)],  # Gemini, Aquarius, Pisces
+        "Moon": [(0, 30), (120, 150), (210, 240)],  # Aries, Leo, Scorpio
+        "Mercury": [(0, 30), (120, 150), (210, 240)],  # Aries, Leo, Scorpio
+        "Venus": [(120, 150), (210, 240), (330, 360)],  # Leo, Scorpio, Pisces
+        "Mars": [(60, 90), (180, 210), (300, 330)],  # Taurus, Virgo, Capricorn
+        "Jupiter": [(90, 120), (210, 240), (330, 360)],  # Gemini, Scorpio, Pisces
+        "Saturn": [(0, 30), (120, 150), (240, 270)]  # Aries, Leo, Sagittarius
+    }
+    
+    for start, end in unfavorable_degrees.get(planet, []):
+        if start <= degree <= end:
+            return "Negative"
+    
+    # If neither favorable nor unfavorable, return neutral
+    return "Neutral"
+
+# Function to calculate Moon-Rahu and Moon-Ketu transit times
+def calculate_moon_nodes_transit(dt, moon_degree):
+    # Rahu and Ketu are always 180 degrees apart
+    # We'll assume Rahu is at a fixed position and Ketu is opposite
+    # In a real application, these would be calculated based on ephemeris data
+    
+    # For demonstration, let's place Rahu at 90 degrees and Ketu at 270 degrees
+    rahu_degree = 90
+    ketu_degree = 270
+    
+    # Calculate when Moon will be in aspect with Rahu and Ketu
+    # We'll consider aspects at 0, 60, 90, 120, 180 degrees
+    
+    moon_speed = 0.5  # degrees per hour (approximate)
+    
+    # Calculate time for Moon-Rahu aspects
+    moon_rahu_aspects = []
+    for aspect in [0, 60, 90, 120, 180]:
+        target_degree = (rahu_degree + aspect) % 360
+        
+        # Calculate the difference in degrees
+        diff = (target_degree - moon_degree) % 360
+        if diff > 180:
+            diff -= 360
+        
+        # Calculate the time to reach the aspect
+        hours_to_aspect = diff / moon_speed
+        
+        if hours_to_aspect > 0:  # Only future aspects
+            aspect_time = dt + timedelta(hours=hours_to_aspect)
+            moon_rahu_aspects.append({
+                "aspect": f"Moon-Rahu {aspect}°",
+                "time": aspect_time.strftime('%I:%M %p')
+            })
+    
+    # Calculate time for Moon-Ketu aspects
+    moon_ketu_aspects = []
+    for aspect in [0, 60, 90, 120, 180]:
+        target_degree = (ketu_degree + aspect) % 360
+        
+        # Calculate the difference in degrees
+        diff = (target_degree - moon_degree) % 360
+        if diff > 180:
+            diff -= 360
+        
+        # Calculate the time to reach the aspect
+        hours_to_aspect = diff / moon_speed
+        
+        if hours_to_aspect > 0:  # Only future aspects
+            aspect_time = dt + timedelta(hours=hours_to_aspect)
+            moon_ketu_aspects.append({
+                "aspect": f"Moon-Ketu {aspect}°",
+                "time": aspect_time.strftime('%I:%M %p')
+            })
+    
+    return moon_rahu_aspects, moon_ketu_aspects
 
 # Combine date and time
 dt = datetime.combine(date_input, time_input)
@@ -247,6 +358,9 @@ def calculate_gann_levels(cmp, planet_degree, planet_name):
     # Calculate the base range percentage
     base_range_percent = 0.01  # 1% base range
     
+    # Apply the swing range multiplier to account for higher market fluctuations
+    base_range_percent *= swing_range_multiplier
+    
     # Apply volatility factor to get the actual range percentage
     range_percent = base_range_percent * volatility_factor
     
@@ -288,6 +402,10 @@ if generate_report:
     # Get important planet for the day
     important_planet = get_important_planet(date_input)
     
+    # Calculate Moon-Rahu and Moon-Ketu transits
+    moon_degree = planetary_positions.get("Moon", 0)
+    moon_rahu_aspects, moon_ketu_aspects = calculate_moon_nodes_transit(dt, moon_degree)
+    
     # Prepare data for each planet
     results = []
     for planet, degree in planetary_positions.items():
@@ -321,6 +439,9 @@ if generate_report:
         current_dt = datetime.combine(date_input, current_time)
         is_current_transit = adj_start_time <= current_dt <= adj_end_time
         
+        # Determine transit nature (favorable/negative/neutral)
+        transit_nature = get_transit_nature(planet, degree)
+        
         results.append({
             "Symbol": symbol,
             "CMP": f"₹{cmp:.2f}",
@@ -329,6 +450,7 @@ if generate_report:
             "Degree Range": f"{degree_low:.2f}°–{degree_high:.2f}°",
             "Key Planet": planet_display,
             "Timing (IST)": timing_str,
+            "Transit Nature": transit_nature,
             "Important": "Yes" if is_important else "No",
             "Current Transit": "Yes" if is_current_transit else "No"
         })
@@ -345,22 +467,55 @@ if generate_report:
     # Display market hours
     st.markdown(f'<div class="sub-header">Market Hours: {market_start.strftime("%I:%M %p")} to {market_end.strftime("%I:%M %p")}</div>', unsafe_allow_html=True)
     
+    # Display Moon-Rahu and Moon-Ketu transits
+    st.markdown('<div class="sub-header">Moon-Nodes Transit</div>', unsafe_allow_html=True)
+    
+    # Create two columns for Moon-Rahu and Moon-Ketu transits
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown('<div class="transit-box"><strong>Moon-Rahu Transit</strong></div>', unsafe_allow_html=True)
+        if moon_rahu_aspects:
+            for aspect in moon_rahu_aspects:
+                st.markdown(f'<div class="transit-box">{aspect["aspect"]}: {aspect["time"]}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="transit-box">No Moon-Rahu aspects today</div>', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown('<div class="transit-box"><strong>Moon-Ketu Transit</strong></div>', unsafe_allow_html=True)
+        if moon_ketu_aspects:
+            for aspect in moon_ketu_aspects:
+                st.markdown(f'<div class="transit-box">{aspect["aspect"]}: {aspect["time"]}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="transit-box">No Moon-Ketu aspects today</div>', unsafe_allow_html=True)
+    
     # Display the table with highlighting
-    st.markdown(f'<div class="sub-header">Intraday Swing Range</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Intraday Swing Range</div>', unsafe_allow_html=True)
     
     # Create a copy of the dataframe for styling
     styled_df = df.copy()
     
     # Apply styling using pandas Styler
     def highlight_rows(row):
+        styles = [''] * len(row)
+        
+        # Highlight based on transit nature
+        if row['Transit Nature'] == 'Favorable':
+            styles = ['background-color: #c8e6c9; border-left: 4px solid #4caf50'] * len(row)
+        elif row['Transit Nature'] == 'Negative':
+            styles = ['background-color: #ffcdd2; border-left: 4px solid #f44336'] * len(row)
+        
+        # Highlight based on importance and current transit
         if row['Important'] == 'Yes' and row['Current Transit'] == 'Yes':
-            return ['background-color: orange; font-weight: bold; border: 2px solid #f44336; box-shadow: 0 0 10px rgba(244, 67, 54, 0.5)'] * len(row)
+            styles = ['background-color: orange; font-weight: bold; border: 2px solid #f44336; box-shadow: 0 0 10px rgba(244, 67, 54, 0.5)'] * len(row)
         elif row['Important'] == 'Yes':
-            return ['background-color: lightgreen; font-weight: bold'] * len(row)
+            if row['Transit Nature'] == 'Neutral':
+                styles = ['background-color: lightgreen; font-weight: bold'] * len(row)
         elif row['Current Transit'] == 'Yes':
-            return ['background-color: yellow; border: 2px solid #ff9800; box-shadow: 0 0 10px rgba(255, 152, 0, 0.5)'] * len(row)
-        else:
-            return [''] * len(row)
+            if row['Transit Nature'] == 'Neutral':
+                styles = ['background-color: yellow; border: 2px solid #ff9800; box-shadow: 0 0 10px rgba(255, 152, 0, 0.5)'] * len(row)
+        
+        return styles
     
     # Apply the styling
     styled_df = styled_df.style.apply(highlight_rows, axis=1)
@@ -410,6 +565,28 @@ if generate_report:
                                 f"Pay special attention to its transit and levels during the trading session.", styles['Normal']))
         elements.append(Spacer(1, 12))
         
+        # Moon-Nodes Transit
+        elements.append(Paragraph("Moon-Nodes Transit", styles['Heading2']))
+        elements.append(Spacer(1, 6))
+        
+        # Moon-Rahu Transit
+        elements.append(Paragraph("Moon-Rahu Transit", styles['Heading3']))
+        if moon_rahu_aspects:
+            for aspect in moon_rahu_aspects:
+                elements.append(Paragraph(f"{aspect['aspect']}: {aspect['time']}", styles['Normal']))
+        else:
+            elements.append(Paragraph("No Moon-Rahu aspects today", styles['Normal']))
+        elements.append(Spacer(1, 6))
+        
+        # Moon-Ketu Transit
+        elements.append(Paragraph("Moon-Ketu Transit", styles['Heading3']))
+        if moon_ketu_aspects:
+            for aspect in moon_ketu_aspects:
+                elements.append(Paragraph(f"{aspect['aspect']}: {aspect['time']}", styles['Normal']))
+        else:
+            elements.append(Paragraph("No Moon-Ketu aspects today", styles['Normal']))
+        elements.append(Spacer(1, 12))
+        
         # Location and time
         dt_str = dt.strftime('%d %B %Y, %I:%M %p')
         elements.append(Paragraph(f"Date & Time: {dt_str}", styles['Normal']))
@@ -429,6 +606,7 @@ if generate_report:
             1.2 * inch,  # Degree Range
             1.5 * inch,  # Key Planet
             1.5 * inch,  # Timing
+            1.0 * inch,  # Transit Nature
             0.8 * inch,  # Important
             0.8 * inch   # Current Transit
         ]
@@ -447,10 +625,11 @@ if generate_report:
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
         ]
         
-        # Highlight rows based on importance and current transit
+        # Highlight rows based on importance, current transit, and transit nature
         for i, row in enumerate(table_data[1:], start=1):
             important = row[-2] == 'Yes'  # Second last column
             current_transit = row[-1] == 'Yes'  # Last column
+            transit_nature = row[-3]  # Third last column
             
             if important and current_transit:
                 style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.orange))
@@ -462,6 +641,12 @@ if generate_report:
             elif important:
                 style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
                 style_commands.append(('FONTNAME', (0, i), (-1, i), 'Helvetica-Bold'))
+            elif transit_nature == 'Favorable':
+                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
+                style_commands.append(('LINEBEFORE', (0, i), (-1, i), 4, colors.green))
+            elif transit_nature == 'Negative':
+                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.pink))
+                style_commands.append(('LINEBEFORE', (0, i), (-1, i), 4, colors.red))
         
         table.setStyle(TableStyle(style_commands))
         elements.append(table)
