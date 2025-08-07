@@ -1,4 +1,2 @@
 streamlit
-swisseph
-pytz
-pandas
+pyswisseph
