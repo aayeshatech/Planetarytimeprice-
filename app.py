@@ -8,6 +8,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 import numpy as np
+import math
 
 # Title
 st.title("Intraday Astro–Gann Swing Tool")
@@ -112,19 +113,67 @@ def get_nakshatra(degree):
     index = int(degree / (360/27)) % 27
     return nakshatras[index]
 
-# Calculate Gann price levels
-def calculate_gann_levels(cmp, planet_degree):
-    base_price = cmp - (cmp % 90)
-    degree_factor = planet_degree / 360
+# Calculate Gann price levels based on planet's degree
+def calculate_gann_levels(cmp, planet_degree, planet_name):
+    # Gann's 360-degree circle divided into 12 parts (30 degrees each)
+    # Each part corresponds to a zodiac sign with specific characteristics
+    
+    # Calculate the zodiac sign (0-11)
+    zodiac_index = int(planet_degree / 30) % 12
+    
+    # Define volatility factors for each zodiac sign
+    zodiac_volatility = {
+        0: 1.2,   # Aries - high volatility
+        1: 0.8,   # Taurus - low volatility
+        2: 1.1,   # Gemini - medium-high volatility
+        3: 0.9,   # Cancer - low-medium volatility
+        4: 1.3,   # Leo - very high volatility
+        5: 1.0,   # Virgo - medium volatility
+        6: 1.0,   # Libra - medium volatility
+        7: 1.1,   # Scorpio - medium-high volatility
+        8: 0.7,   # Sagittarius - very low volatility
+        9: 0.9,   # Capricorn - low-medium volatility
+        10: 1.2,  # Aquarius - high volatility
+        11: 0.8   # Pisces - low volatility
+    }
+    
+    # Define planet-specific multipliers
+    planet_multipliers = {
+        "Sun": 1.0,
+        "Moon": 0.8,
+        "Mercury": 1.1,
+        "Venus": 0.7,
+        "Mars": 1.3,
+        "Jupiter": 1.2,
+        "Saturn": 0.9
+    }
+    
+    # Calculate the degree within the zodiac sign (0-30)
+    degree_in_sign = planet_degree % 30
+    
+    # Calculate the volatility factor based on zodiac sign and planet
+    volatility_factor = zodiac_volatility[zodiac_index] * planet_multipliers[planet_name]
+    
+    # Adjust volatility based on position within the sign
+    # Higher volatility at the beginning and end of signs (critical degrees)
+    if degree_in_sign < 5 or degree_in_sign > 25:
+        volatility_factor *= 1.2
+    
+    # Calculate the base range percentage
+    base_range_percent = 0.01  # 1% base range
+    
+    # Apply volatility factor to get the actual range percentage
+    range_percent = base_range_percent * volatility_factor
     
     # Calculate swing range
-    range_size = cmp * 0.012
+    range_size = cmp * range_percent
     swing_low = cmp - range_size
     swing_high = cmp + range_size
     
-    # Degree range based on planet position
-    degree_low = (planet_degree - 3) % 360
-    degree_high = (planet_degree + 3) % 360
+    # Calculate degree range (±3 degrees adjusted by volatility)
+    degree_range = 3 * volatility_factor
+    degree_low = (planet_degree - degree_range) % 360
+    degree_high = (planet_degree + degree_range) % 360
     
     return swing_low, swing_high, degree_low, degree_high
 
@@ -157,7 +206,9 @@ if generate_report:
     # Prepare data for each planet
     results = []
     for planet, degree in planetary_positions.items():
-        swing_low, swing_high, degree_low, degree_high = calculate_gann_levels(cmp, degree)
+        # Calculate Gann levels with planet-specific parameters
+        swing_low, swing_high, degree_low, degree_high = calculate_gann_levels(cmp, degree, planet)
+        
         start_time, end_time = calculate_timing(dt, planet)
         
         # Adjust timing to market hours
