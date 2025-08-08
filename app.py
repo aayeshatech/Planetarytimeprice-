@@ -1,742 +1,806 @@
-import streamlit as st
-import pandas as pd
-from datetime import datetime, timedelta
-from io import BytesIO
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-from reportlab.lib.units import inch
-import numpy as np
-import math
-
-# Set page config for a wider layout
-st.set_page_config(layout="wide", page_title="Intraday Astro–Gann Swing Tool")
-
-# Custom CSS for astro-themed styling
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1a237e;
-        text-align: center;
-        margin-bottom: 1rem;
-        font-weight: bold;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
-    }
-    .sub-header {
-        font-size: 1.8rem;
-        color: #283593;
-        margin-top: 1rem;
-        margin-bottom: 0.5rem;
-        font-weight: 600;
-    }
-    .info-box {
-        background-color: #e8eaf6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 5px solid #3f51b5;
-        margin-bottom: 1rem;
-    }
-    .symbol-cmp {
-        font-size: 1.5rem;
-        font-weight: bold;
-        color: #1a237e;
-        text-align: center;
-        padding: 0.8rem;
-        background-color: #c5cae9;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-    }
-    .data-table {
-        font-size: 1.1rem !important;
-    }
-    .important-row {
-        background-color: #4caf50 !important;
-        font-weight: bold !important;
-    }
-    .current-transit-row {
-        background-color: #ffeb3b !important;
-        border: 2px solid #ff9800 !important;
-        box-shadow: 0 0 10px rgba(255, 152, 0, 0.5) !important;
-    }
-    .both-row {
-        background-color: #ff9800 !important;
-        font-weight: bold !important;
-        border: 2px solid #f44336 !important;
-        box-shadow: 0 0 10px rgba(244, 67, 54, 0.5) !important;
-    }
-    .favorable-row {
-        background-color: #c8e6c9 !important;
-        border-left: 4px solid #4caf50 !important;
-    }
-    .negative-row {
-        background-color: #ffcdd2 !important;
-        border-left: 4px solid #f44336 !important;
-    }
-    .planet-icon {
-        display: inline-block;
-        margin-right: 5px;
-    }
-    .current-transit-indicator {
-        position: relative;
-        display: inline-block;
-        padding: 0 5px;
-    }
-    .current-transit-indicator::after {
-        content: "⚡";
-        position: absolute;
-        top: -5px;
-        right: -10px;
-        color: #ff9800;
-        font-size: 1.2rem;
-    }
-    .transit-box {
-        background-color: #f5f5f5;
-        border-radius: 0.5rem;
-        padding: 1rem;
-        margin-bottom: 1rem;
-        border: 1px solid #e0e0e0;
-    }
-    .warning-message {
-        background-color: #fff3cd;
-        border-left: 5px solid #ffc107;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-    }
-    .error-message {
-        background-color: #f8d7da;
-        border-left: 5px solid #dc3545;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Title with custom styling
-st.markdown('<div class="main-header">Intraday Astro–Gann Swing Tool</div>', unsafe_allow_html=True)
-
-# Input fields in columns
-col1, col2, col3 = st.columns([1, 1, 1])
-with col1:
-    date_input = st.date_input("Select Date", datetime.today())
-    time_input = st.time_input("Select Time", datetime.now().time())
-with col2:
-    location_input = st.text_input("Enter Location (e.g., Mumbai, India)", "Mumbai, India")
-    symbol = st.text_input("Symbol", "Nifty")
-with col3:
-    cmp = st.number_input("CMP (Current Market Price)", value=24574.0)
-    market = st.radio("Select Market", ["Indian Market", "Global Market"])
-
-# Font size control for the table
-font_size = st.slider("Table Font Size", min_value=12, max_value=24, value=16, step=1)
-
-# Background color picker for the intraday swing range box
-box_bg_color = st.color_picker("Background Color for Intraday Swing Range Box", "#e8eaf6")
-
-# Swing range multiplier to adjust for higher market fluctuations
-swing_range_multiplier = st.slider("Swing Range Multiplier", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
-
-# Generate button
-generate_report = st.button("Generate Report", key="generate_btn")
-
-# Define market hours
-if market == "Indian Market":
-    market_start = datetime.strptime("09:15", "%H:%M").time()
-    market_end = datetime.strptime("15:15", "%H:%M").time()
-else:
-    market_start = datetime.strptime("05:00", "%H:%M").time()
-    market_end = datetime.strptime("23:35", "%H:%M").time()
-
-# Function to determine the important planet for the day
-def get_important_planet(date):
-    day_of_week = date.weekday()  # Monday is 0, Sunday is 6
-    day_rulers = {
-        0: "Moon",      # Monday
-        1: "Mars",      # Tuesday
-        2: "Mercury",   # Wednesday
-        3: "Jupiter",   # Thursday
-        4: "Venus",     # Friday
-        5: "Saturn",    # Saturday
-        6: "Sun"        # Sunday
-    }
-    return day_rulers.get(day_of_week, "Moon")
-
-# Function to check if time is within market hours
-def is_within_market_hours(time):
-    return market_start <= time <= market_end
-
-# Function to adjust timing to market hours
-def adjust_timing_to_market(start_time, end_time):
-    if market == "Global Market":
-        # For global market, show all times without adjustment
-        return start_time, end_time
-        
-    if start_time.time() < market_start:
-        start_time = datetime.combine(start_time.date(), market_start)
-    if end_time.time() > market_end:
-        end_time = datetime.combine(end_time.date(), market_end)
-    
-    # If the entire window is outside market hours, return None
-    if start_time >= end_time:
-        return None, None
-    
-    return start_time, end_time
-
-# Function to determine if a planet's transit is favorable or negative
-def get_transit_nature(planet, degree):
-    # Define favorable and unfavorable degrees for each planet
-    favorable_degrees = {
-        "Sun": [(0, 30), (120, 150), (240, 270)],  # Aries, Leo, Sagittarius
-        "Moon": [(60, 90), (150, 180), (270, 300)],  # Taurus, Cancer, Pisces
-        "Mercury": [(60, 90), (180, 210), (300, 330)],  # Taurus, Virgo, Capricorn
-        "Venus": [(30, 60), (150, 180), (270, 300)],  # Taurus, Libra, Pisces
-        "Mars": [(0, 30), (90, 120), (240, 270)],  # Aries, Scorpio, Capricorn
-        "Jupiter": [(0, 30), (120, 150), (240, 270)],  # Aries, Leo, Sagittarius
-        "Saturn": [(60, 90), (210, 240), (300, 330)]  # Taurus, Libra, Aquarius
-    }
-    
-    # Check if the planet's degree falls in any favorable range
-    for start, end in favorable_degrees.get(planet, []):
-        if start <= degree <= end:
-            return "Favorable"
-    
-    # If not in favorable range, check for unfavorable ranges (opposite signs)
-    unfavorable_degrees = {
-        "Sun": [(90, 120), (210, 240), (330, 360)],  # Gemini, Aquarius, Pisces
-        "Moon": [(0, 30), (120, 150), (210, 240)],  # Aries, Leo, Scorpio
-        "Mercury": [(0, 30), (120, 150), (210, 240)],  # Aries, Leo, Scorpio
-        "Venus": [(120, 150), (210, 240), (330, 360)],  # Leo, Scorpio, Pisces
-        "Mars": [(60, 90), (180, 210), (300, 330)],  # Taurus, Virgo, Capricorn
-        "Jupiter": [(90, 120), (210, 240), (330, 360)],  # Gemini, Scorpio, Pisces
-        "Saturn": [(0, 30), (120, 150), (240, 270)]  # Aries, Leo, Sagittarius
-    }
-    
-    for start, end in unfavorable_degrees.get(planet, []):
-        if start <= degree <= end:
-            return "Negative"
-    
-    # If neither favorable nor unfavorable, return neutral
-    return "Neutral"
-
-# Function to calculate Moon-Rahu and Moon-Ketu transit times
-def calculate_moon_nodes_transit(dt, moon_degree):
-    # Rahu and Ketu are always 180 degrees apart
-    # We'll assume Rahu is at a fixed position and Ketu is opposite
-    # In a real application, these would be calculated based on ephemeris data
-    
-    # For demonstration, let's place Rahu at 90 degrees and Ketu at 270 degrees
-    rahu_degree = 90
-    ketu_degree = 270
-    
-    # Calculate when Moon will be in aspect with Rahu and Ketu
-    # We'll consider aspects at 0, 60, 90, 120, 180 degrees
-    
-    moon_speed = 0.5  # degrees per hour (approximate)
-    
-    # Calculate time for Moon-Rahu aspects
-    moon_rahu_aspects = []
-    for aspect in [0, 60, 90, 120, 180]:
-        target_degree = (rahu_degree + aspect) % 360
-        
-        # Calculate the difference in degrees
-        diff = (target_degree - moon_degree) % 360
-        if diff > 180:
-            diff -= 360
-        
-        # Calculate the time to reach the aspect
-        hours_to_aspect = diff / moon_speed
-        
-        if hours_to_aspect > 0:  # Only future aspects
-            aspect_time = dt + timedelta(hours=hours_to_aspect)
-            moon_rahu_aspects.append({
-                "aspect": f"Moon-Rahu {aspect}°",
-                "time": aspect_time.strftime('%I:%M %p')
-            })
-    
-    # Calculate time for Moon-Ketu aspects
-    moon_ketu_aspects = []
-    for aspect in [0, 60, 90, 120, 180]:
-        target_degree = (ketu_degree + aspect) % 360
-        
-        # Calculate the difference in degrees
-        diff = (target_degree - moon_degree) % 360
-        if diff > 180:
-            diff -= 360
-        
-        # Calculate the time to reach the aspect
-        hours_to_aspect = diff / moon_speed
-        
-        if hours_to_aspect > 0:  # Only future aspects
-            aspect_time = dt + timedelta(hours=hours_to_aspect)
-            moon_ketu_aspects.append({
-                "aspect": f"Moon-Ketu {aspect}°",
-                "time": aspect_time.strftime('%I:%M %p')
-            })
-    
-    return moon_rahu_aspects, moon_ketu_aspects
-
-# Combine date and time
-dt = datetime.combine(date_input, time_input)
-
-# Mock planetary positions calculation
-def get_planetary_positions(dt):
-    base_positions = {
-        "Sun": 120.54,
-        "Moon": 183.77,
-        "Mercury": 45.32,
-        "Venus": 210.65,
-        "Mars": 95.78,
-        "Jupiter": 310.22,
-        "Saturn": 275.43
-    }
-    
-    # Add some variation based on time
-    time_factor = (dt.hour * 60 + dt.minute) / (24 * 60)
-    positions = {}
-    for planet, base_pos in base_positions.items():
-        # Simulate planetary movement
-        movement = {
-            "Sun": 0.04,
-            "Moon": 0.5,
-            "Mercury": 0.3,
-            "Venus": 0.2,
-            "Mars": 0.1,
-            "Jupiter": 0.05,
-            "Saturn": 0.03
-        }
-        positions[planet] = (base_pos + movement[planet] * dt.hour) % 360
-    
-    return positions
-
-# Get nakshatra based on moon's position
-def get_nakshatra(degree):
-    nakshatras = [
-        "Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira", "Ardra", "Punarvasu",
-        "Pushya", "Ashlesha", "Magha", "Purva Phalguni", "Uttara Phalguni", "Hasta",
-        "Chitra", "Swati", "Vishakha", "Anuradha", "Jyeshtha", "Mula", "Purva Ashadha",
-        "Uttara Ashadha", "Shravana", "Dhanishta", "Shatabhisha", "Purva Bhadrapada",
-        "Uttara Bhadrapada", "Revati"
-    ]
-    index = int(degree / (360/27)) % 27
-    return nakshatras[index]
-
-# Calculate Gann price levels based on planet's degree
-def calculate_gann_levels(cmp, planet_degree, planet_name):
-    # Gann's 360-degree circle divided into 12 parts (30 degrees each)
-    # Each part corresponds to a zodiac sign with specific characteristics
-    
-    # Calculate the zodiac sign (0-11)
-    zodiac_index = int(planet_degree / 30) % 12
-    
-    # Define volatility factors for each zodiac sign
-    zodiac_volatility = {
-        0: 1.2,   # Aries - high volatility
-        1: 0.8,   # Taurus - low volatility
-        2: 1.1,   # Gemini - medium-high volatility
-        3: 0.9,   # Cancer - low-medium volatility
-        4: 1.3,   # Leo - very high volatility
-        5: 1.0,   # Virgo - medium volatility
-        6: 1.0,   # Libra - medium volatility
-        7: 1.1,   # Scorpio - medium-high volatility
-        8: 0.7,   # Sagittarius - very low volatility
-        9: 0.9,   # Capricorn - low-medium volatility
-        10: 1.2,  # Aquarius - high volatility
-        11: 0.8   # Pisces - low volatility
-    }
-    
-    # Define planet-specific multipliers
-    planet_multipliers = {
-        "Sun": 1.0,
-        "Moon": 0.8,
-        "Mercury": 1.1,
-        "Venus": 0.7,
-        "Mars": 1.3,
-        "Jupiter": 1.2,
-        "Saturn": 0.9
-    }
-    
-    # Calculate the degree within the zodiac sign (0-30)
-    degree_in_sign = planet_degree % 30
-    
-    # Calculate the volatility factor based on zodiac sign and planet
-    volatility_factor = zodiac_volatility[zodiac_index] * planet_multipliers[planet_name]
-    
-    # Adjust volatility based on position within the sign
-    # Higher volatility at the beginning and end of signs (critical degrees)
-    if degree_in_sign < 5 or degree_in_sign > 25:
-        volatility_factor *= 1.2
-    
-    # Calculate the base range percentage
-    base_range_percent = 0.01  # 1% base range
-    
-    # Apply the swing range multiplier to account for higher market fluctuations
-    base_range_percent *= swing_range_multiplier
-    
-    # Apply volatility factor to get the actual range percentage
-    range_percent = base_range_percent * volatility_factor
-    
-    # Calculate swing range
-    range_size = cmp * range_percent
-    swing_low = cmp - range_size
-    swing_high = cmp + range_size
-    
-    # Calculate degree range (±3 degrees adjusted by volatility)
-    degree_range = 3 * volatility_factor
-    degree_low = (planet_degree - degree_range) % 360
-    degree_high = (planet_degree + degree_range) % 360
-    
-    return swing_low, swing_high, degree_low, degree_high
-
-# Calculate timing window
-def calculate_timing(dt, planet):
-    base_duration = {
-        "Sun": 30,
-        "Moon": 90,
-        "Mercury": 45,
-        "Venus": 60,
-        "Mars": 75,
-        "Jupiter": 120,
-        "Saturn": 150
-    }
-    
-    duration = base_duration.get(planet, 60)
-    
-    # If the selected time is outside market hours, adjust to the nearest market hour
-    if market == "Indian Market":
-        if dt.time() < market_start:
-            center_time = datetime.combine(dt.date(), market_start)
-        elif dt.time() > market_end:
-            center_time = datetime.combine(dt.date(), market_end)
-        else:
-            center_time = dt
-    else:
-        center_time = dt
-    
-    start_time = center_time - timedelta(minutes=duration//2)
-    end_time = center_time + timedelta(minutes=duration//2)
-    
-    return start_time, end_time
-
-# Generate report only when button is clicked
-if generate_report:
-    # Check if the selected date is a weekend (for Indian Market)
-    if market == "Indian Market" and date_input.weekday() >= 5:  # 5=Saturday, 6=Sunday
-        st.markdown('<div class="error-message"><strong>Market Closed</strong><br>The selected date is a weekend. Indian Market is closed on Saturdays and Sundays. Please select a weekday.</div>', unsafe_allow_html=True)
-        st.stop()
-    
-    # Check if the selected time is outside market hours (for Indian Market)
-    if market == "Indian Market" and not is_within_market_hours(time_input):
-        st.markdown(f'<div class="warning-message"><strong>Outside Market Hours</strong><br>The selected time is outside Indian Market hours ({market_start.strftime("%I:%M %p")} to {market_end.strftime("%I:%M %p")}). The report will show transits during market hours only.</div>', unsafe_allow_html=True)
-    
-    # Get planetary positions
-    planetary_positions = get_planetary_positions(dt)
-    
-    # Get important planet for the day
-    important_planet = get_important_planet(date_input)
-    
-    # Calculate Moon-Rahu and Moon-Ketu transits
-    moon_degree = planetary_positions.get("Moon", 0)
-    moon_rahu_aspects, moon_ketu_aspects = calculate_moon_nodes_transit(dt, moon_degree)
-    
-    # Prepare data for each planet
-    results = []
-    for planet, degree in planetary_positions.items():
-        # Calculate Gann levels with planet-specific parameters
-        swing_low, swing_high, degree_low, degree_high = calculate_gann_levels(cmp, degree, planet)
-        
-        start_time, end_time = calculate_timing(dt, planet)
-        
-        # Adjust timing to market hours
-        adj_start_time, adj_end_time = adjust_timing_to_market(start_time, end_time)
-        
-        # Skip if outside market hours (only for Indian Market)
-        if market == "Indian Market" and (adj_start_time is None or adj_end_time is None):
-            continue
-            
-        # Format timing
-        timing_str = f"{adj_start_time.strftime('%I:%M %p')} – {adj_end_time.strftime('%I:%M %p')}"
-        
-        # Get nakshatra for Moon
-        if planet == "Moon":
-            nakshatra = get_nakshatra(degree)
-            planet_display = f"Moon in {nakshatra}"
-        else:
-            planet_display = planet
-        
-        # Check if this is the important planet
-        is_important = (planet == important_planet)
-        
-        # Check if current time is within this planet's transit window
-        current_time = datetime.now().time()
-        current_dt = datetime.combine(date_input, current_time)
-        is_current_transit = adj_start_time <= current_dt <= adj_end_time
-        
-        # Determine transit nature (favorable/negative/neutral)
-        transit_nature = get_transit_nature(planet, degree)
-        
-        results.append({
-            "Symbol": symbol,
-            "CMP": f"₹{cmp:.2f}",
-            "Swing Low": f"₹{swing_low:.2f}",
-            "Swing High": f"₹{swing_high:.2f}",
-            "Degree Range": f"{degree_low:.2f}°–{degree_high:.2f}°",
-            "Key Planet": planet_display,
-            "Timing (IST)": timing_str,
-            "Transit Nature": transit_nature,
-            "Important": "Yes" if is_important else "No",
-            "Current Transit": "Yes" if is_current_transit else "No"
-        })
-    
-    # Create DataFrame
-    df = pd.DataFrame(results)
-    
-    # Check if DataFrame is empty
-    if df.empty:
-        if market == "Indian Market":
-            st.markdown('<div class="error-message"><strong>No Planetary Transits During Market Hours</strong><br>There are no planetary transits within market hours for the selected date. This could be due to:<ul><li>The selected date is a market holiday</li><li>All planetary transits fall outside market hours</li></ul>Please try a different date.</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="error-message"><strong>No Planetary Transits Found</strong><br>No planetary transits were found for the selected date and time. Please try a different date or time.</div>', unsafe_allow_html=True)
-        st.stop()  # Stop execution here
-    
-    # Display Symbol and CMP above the table
-    st.markdown(f'<div class="symbol-cmp">Symbol: {symbol} | CMP: ₹{cmp:.2f}</div>', unsafe_allow_html=True)
-    
-    # Display the important planet information
-    st.markdown(f'<div class="info-box"><strong>Important Planet for Trading: {important_planet}</strong><br>The ruling planet for {date_input.strftime("%A")} is {important_planet}. Pay special attention to its transit and levels during the trading session.</div>', unsafe_allow_html=True)
-    
-    # Display market hours
-    st.markdown(f'<div class="sub-header">Market Hours: {market_start.strftime("%I:%M %p")} to {market_end.strftime("%I:%M %p")}</div>', unsafe_allow_html=True)
-    
-    # Display Moon-Rahu and Moon-Ketu transits
-    st.markdown('<div class="sub-header">Moon-Nodes Transit</div>', unsafe_allow_html=True)
-    
-    # Create two columns for Moon-Rahu and Moon-Ketu transits
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown('<div class="transit-box"><strong>Moon-Rahu Transit</strong></div>', unsafe_allow_html=True)
-        if moon_rahu_aspects:
-            for aspect in moon_rahu_aspects:
-                st.markdown(f'<div class="transit-box">{aspect["aspect"]}: {aspect["time"]}</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="transit-box">No Moon-Rahu aspects today</div>', unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown('<div class="transit-box"><strong>Moon-Ketu Transit</strong></div>', unsafe_allow_html=True)
-        if moon_ketu_aspects:
-            for aspect in moon_ketu_aspects:
-                st.markdown(f'<div class="transit-box">{aspect["aspect"]}: {aspect["time"]}</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="transit-box">No Moon-Ketu aspects today</div>', unsafe_allow_html=True)
-    
-    # Display the table with highlighting
-    st.markdown('<div class="sub-header">Intraday Swing Range</div>', unsafe_allow_html=True)
-    
-    # Create a copy of the dataframe for styling
-    styled_df = df.copy()
-    
-    # Apply styling using pandas Styler
-    def highlight_rows(row):
-        styles = [''] * len(row)
-        
-        # Highlight based on transit nature
-        if row['Transit Nature'] == 'Favorable':
-            styles = ['background-color: #c8e6c9; border-left: 4px solid #4caf50'] * len(row)
-        elif row['Transit Nature'] == 'Negative':
-            styles = ['background-color: #ffcdd2; border-left: 4px solid #f44336'] * len(row)
-        
-        # Highlight based on importance and current transit
-        if row['Important'] == 'Yes' and row['Current Transit'] == 'Yes':
-            styles = ['background-color: orange; font-weight: bold; border: 2px solid #f44336; box-shadow: 0 0 10px rgba(244, 67, 54, 0.5)'] * len(row)
-        elif row['Important'] == 'Yes':
-            if row['Transit Nature'] == 'Neutral':
-                styles = ['background-color: lightgreen; font-weight: bold'] * len(row)
-        elif row['Current Transit'] == 'Yes':
-            if row['Transit Nature'] == 'Neutral':
-                styles = ['background-color: yellow; border: 2px solid #ff9800; box-shadow: 0 0 10px rgba(255, 152, 0, 0.5)'] * len(row)
-        
-        return styles
-    
-    # Apply the styling
-    styled_df = styled_df.style.apply(highlight_rows, axis=1)
-    styled_df = styled_df.set_properties(**{'font-size': f'{font_size}px'})
-    
-    # Display the styled dataframe
-    st.dataframe(styled_df, use_container_width=True)
-    
-    # --- PDF Generation ---
-    def generate_pdf(dataframe):
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-        elements = []
-        styles = getSampleStyleSheet()
-        
-        # Title
-        title_style = ParagraphStyle(
-            name='CustomTitle',
-            parent=styles['Title'],
-            fontSize=18,
-            textColor=colors.darkblue,
-            spaceAfter=12
-        )
-        elements.append(Paragraph("Intraday Astro–Gann Swing Report", title_style))
-        elements.append(Spacer(1, 12))
-        
-        # Symbol and CMP
-        symbol_style = ParagraphStyle(
-            name='Symbol',
-            parent=styles['Heading2'],
-            fontSize=14,
-            textColor=colors.darkblue,
-            spaceAfter=12
-        )
-        elements.append(Paragraph(f"Symbol: {symbol} | CMP: ₹{cmp:.2f}", symbol_style))
-        elements.append(Spacer(1, 12))
-        
-        # Important planet
-        important_style = ParagraphStyle(
-            name='Important',
-            parent=styles['Heading2'],
-            textColor=colors.red,
-            spaceAfter=12
-        )
-        elements.append(Paragraph(f"Important Planet for Trading: {important_planet}", important_style))
-        elements.append(Paragraph(f"The ruling planet for {date_input.strftime('%A')} is {important_planet}. "
-                                f"Pay special attention to its transit and levels during the trading session.", styles['Normal']))
-        elements.append(Spacer(1, 12))
-        
-        # Moon-Nodes Transit
-        elements.append(Paragraph("Moon-Nodes Transit", styles['Heading2']))
-        elements.append(Spacer(1, 6))
-        
-        # Moon-Rahu Transit
-        elements.append(Paragraph("Moon-Rahu Transit", styles['Heading3']))
-        if moon_rahu_aspects:
-            for aspect in moon_rahu_aspects:
-                elements.append(Paragraph(f"{aspect['aspect']}: {aspect['time']}", styles['Normal']))
-        else:
-            elements.append(Paragraph("No Moon-Rahu aspects today", styles['Normal']))
-        elements.append(Spacer(1, 6))
-        
-        # Moon-Ketu Transit
-        elements.append(Paragraph("Moon-Ketu Transit", styles['Heading3']))
-        if moon_ketu_aspects:
-            for aspect in moon_ketu_aspects:
-                elements.append(Paragraph(f"{aspect['aspect']}: {aspect['time']}", styles['Normal']))
-        else:
-            elements.append(Paragraph("No Moon-Ketu aspects today", styles['Normal']))
-        elements.append(Spacer(1, 12))
-        
-        # Location and time
-        dt_str = dt.strftime('%d %B %Y, %I:%M %p')
-        elements.append(Paragraph(f"Date & Time: {dt_str}", styles['Normal']))
-        elements.append(Paragraph(f"Location: {location_input}", styles['Normal']))
-        elements.append(Paragraph(f"Market: {market} ({market_start.strftime('%I:%M %p')} to {market_end.strftime('%I:%M %p')})", styles['Normal']))
-        elements.append(Spacer(1, 12))
-        
-        # Table content - only if dataframe is not empty
-        if not dataframe.empty:
-            table_data = [list(dataframe.columns)] + dataframe.values.tolist()
-            
-            # Define column widths for better layout
-            colWidths = [
-                1.0 * inch,  # Symbol
-                0.8 * inch,  # CMP
-                1.0 * inch,  # Swing Low
-                1.0 * inch,  # Swing High
-                1.2 * inch,  # Degree Range
-                1.5 * inch,  # Key Planet
-                1.5 * inch,  # Timing
-                1.0 * inch,  # Transit Nature
-                0.8 * inch,  # Important
-                0.8 * inch   # Current Transit
-            ]
-            
-            table = Table(table_data, colWidths=colWidths)
-            
-            # Build style commands
-            style_commands = [
-                ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('FONTSIZE', (0, 0), (-1, -1), font_size/2),  # Convert to points (1px ≈ 0.75pt)
-                # First, set all rows to white
-                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-            ]
-            
-            # Highlight rows based on importance, current transit, and transit nature
-            for i, row in enumerate(table_data[1:], start=1):
-                important = row[-2] == 'Yes'  # Second last column
-                current_transit = row[-1] == 'Yes'  # Last column
-                transit_nature = row[-3]  # Third last column
-                
-                if important and current_transit:
-                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.orange))
-                    style_commands.append(('FONTNAME', (0, i), (-1, i), 'Helvetica-Bold'))
-                    style_commands.append(('BOX', (0, i), (-1, i), 2, colors.red))
-                elif current_transit:
-                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.yellow))
-                    style_commands.append(('BOX', (0, i), (-1, i), 2, colors.orange))
-                elif important:
-                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
-                    style_commands.append(('FONTNAME', (0, i), (-1, i), 'Helvetica-Bold'))
-                elif transit_nature == 'Favorable':
-                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
-                    style_commands.append(('LINEBEFORE', (0, i), (-1, i), 4, colors.green))
-                elif transit_nature == 'Negative':
-                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.pink))
-                    style_commands.append(('LINEBEFORE', (0, i), (-1, i), 4, colors.red))
-            
-            table.setStyle(TableStyle(style_commands))
-            elements.append(table)
-        else:
-            # Add a message when there's no data
-            no_data_style = ParagraphStyle(
-                name='NoData',
-                parent=styles['Normal'],
-                textColor=colors.red,
-                alignment=1  # Center alignment
-            )
-            elements.append(Paragraph("No planetary transits within market hours for the selected date and time.", no_data_style))
-        
-        doc.build(elements)
-        buffer.seek(0)
-        return buffer
-    
-    # Download as PDF
-    pdf_buffer = generate_pdf(df)
-    st.download_button(
-        label="Download PDF",
-        data=pdf_buffer,
-        file_name=f"astro_gann_report_{date_input.strftime('%Y-%m-%d')}.pdf",
-        mime="application/pdf"
-    )
-    
-    # Download as Excel
-    excel_buffer = BytesIO()
-    df.to_excel(excel_buffer, index=False, engine='openpyxl')
-    excel_buffer.seek(0)
-    st.download_button(
-        label="Download Excel",
-        data=excel_buffer,
-        file_name=f"astro_gann_report_{date_input.strftime('%Y-%m-%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-    
-    # Apply custom background color to the intraday swing range box
-    st.markdown(f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intraday Astro–Gann Swing Tool</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        div[data-testid="stVerticalBlock"] > div:has(div[data-testid="stVerticalBlock"] > div > div > div > .dataframe) {{
-            background-color: {box_bg_color};
-            padding: 1rem;
-            border-radius: 0.5rem;
-            border-left: 5px solid #3f51b5;
+        :root {
+            --primary-dark: #0a0e27;
+            --primary-blue: #1a237e;
+            --secondary-blue: #283593;
+            --accent-purple: #3f51b5;
+            --light-blue: #e8eaf6;
+            --card-bg: #c5cae9;
+            --gold: #ffd700;
+            --silver: #c0c0c0;
+            --gradient-cosmic: linear-gradient(135deg, #0a0e27 0%, #1a237e 50%, #283593 100%);
+            --gradient-card: linear-gradient(145deg, #ffffff 0%, #f8f9ff 100%);
+            --shadow-primary: 0 8px 32px rgba(26, 35, 126, 0.2);
+            --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.1);
+            --text-primary: #0a0e27;
+            --text-secondary: #64748b;
+            --border-radius: 16px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--gradient-cosmic);
+            min-height: 100vh;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .cosmic-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(255, 215, 0, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(63, 81, 181, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 80%, rgba(26, 35, 126, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-primary);
+            backdrop-filter: blur(10px);
+        }
+
+        .header h1 {
+            font-size: 3.5rem;
+            background: var(--gradient-cosmic);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .header .subtitle {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .planet-icons {
+            margin-top: 1.5rem;
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .planet-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            transition: var(--transition);
+            cursor: pointer;
+        }
+
+        .planet-icon:hover {
+            transform: translateY(-2px) scale(1.1);
+        }
+
+        .planet-sun { background: linear-gradient(45deg, #ff6b35, #ffd700); }
+        .planet-moon { background: linear-gradient(45deg, #c0c0c0, #f8f8ff); }
+        .planet-mercury { background: linear-gradient(45deg, #87ceeb, #4682b4); }
+        .planet-venus { background: linear-gradient(45deg, #ff69b4, #ffc0cb); }
+        .planet-mars { background: linear-gradient(45deg, #dc143c, #ff4500); }
+        .planet-jupiter { background: linear-gradient(45deg, #daa520, #ff8c00); }
+        .planet-saturn { background: linear-gradient(45deg, #2f4f4f, #708090); }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .control-card {
+            background: var(--gradient-card);
+            border-radius: var(--border-radius);
+            padding: 2rem;
+            box-shadow: var(--shadow-card);
+            border: 1px solid rgba(63, 81, 181, 0.1);
+            transition: var(--transition);
+        }
+
+        .control-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(26, 35, 126, 0.15);
+        }
+
+        .control-card h3 {
+            color: var(--primary-blue);
+            margin-bottom: 1.5rem;
+            font-size: 1.25rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 0.95rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            border: 2px solid rgba(63, 81, 181, 0.2);
+            border-radius: 12px;
+            font-size: 1rem;
+            transition: var(--transition);
+            background: rgba(255, 255, 255, 0.8);
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 0 3px rgba(63, 81, 181, 0.1);
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+        }
+
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 8px;
+            transition: var(--transition);
+        }
+
+        .radio-option:hover {
+            background: rgba(63, 81, 181, 0.05);
+        }
+
+        .generate-btn {
+            background: var(--gradient-cosmic);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            width: 100%;
+            margin-top: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .generate-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(26, 35, 126, 0.3);
+        }
+
+        .generate-btn:active {
+            transform: translateY(0);
+        }
+
+        .market-status {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            border-left: 5px solid var(--gold);
+            box-shadow: var(--shadow-card);
+        }
+
+        .market-status h3 {
+            color: var(--primary-blue);
             margin-bottom: 1rem;
-        }}
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .important-planet {
+            background: linear-gradient(135deg, #ffd700, #ffecb3);
+            border-radius: var(--border-radius);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            text-align: center;
+            box-shadow: var(--shadow-card);
+            border: 2px solid var(--gold);
+        }
+
+        .important-planet h2 {
+            color: var(--primary-dark);
+            margin-bottom: 1rem;
+            font-size: 1.8rem;
+        }
+
+        .results-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: var(--border-radius);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-primary);
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .results-title {
+            color: var(--primary-blue);
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+
+        .symbol-display {
+            background: var(--gradient-cosmic);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1.2rem;
+        }
+
+        .transit-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .transit-card {
+            background: var(--gradient-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid rgba(63, 81, 181, 0.1);
+            transition: var(--transition);
+        }
+
+        .transit-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-card);
+        }
+
+        .transit-card h4 {
+            color: var(--primary-blue);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: var(--shadow-card);
+            background: white;
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .data-table th {
+            background: var(--gradient-cosmic);
+            color: white;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.875rem;
+            letter-spacing: 0.5px;
+        }
+
+        .data-table tr:hover {
+            background: rgba(63, 81, 181, 0.02);
+        }
+
+        .favorable-row {
+            background: rgba(76, 175, 80, 0.1) !important;
+            border-left: 4px solid #4caf50;
+        }
+
+        .negative-row {
+            background: rgba(244, 67, 54, 0.1) !important;
+            border-left: 4px solid #f44336;
+        }
+
+        .important-row {
+            background: rgba(255, 215, 0, 0.2) !important;
+            font-weight: 600;
+            border-left: 4px solid var(--gold);
+        }
+
+        .current-transit-row {
+            background: rgba(255, 152, 0, 0.2) !important;
+            border: 2px solid #ff9800;
+            position: relative;
+        }
+
+        .current-transit-row::after {
+            content: "⚡";
+            position: absolute;
+            top: 50%;
+            right: 1rem;
+            transform: translateY(-50%);
+            font-size: 1.2rem;
+            color: #ff9800;
+        }
+
+        .download-section {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .download-btn {
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid var(--accent-purple);
+            color: var(--accent-purple);
+            padding: 0.875rem 1.5rem;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .download-btn:hover {
+            background: var(--accent-purple);
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 3rem;
+            padding: 2rem;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .header h1 {
+                font-size: 2.5rem;
+            }
+            
+            .controls-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .results-header {
+                flex-direction: column;
+                text-align: center;
+            }
+            
+            .data-table {
+                font-size: 0.875rem;
+            }
+            
+            .data-table th,
+            .data-table td {
+                padding: 0.75rem 0.5rem;
+            }
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(63, 81, 181, 0.1);
+            border-top: 4px solid var(--accent-purple);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #664d03;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            border: 1px solid #dc3545;
+            color: #721c24;
+        }
+
+        .alert-success {
+            background: #d1e7dd;
+            border: 1px solid #198754;
+            color: #0f5132;
+        }
     </style>
-    """, unsafe_allow_html=True)
+</head>
+<body>
+    <div class="cosmic-background"></div>
+    
+    <div class="container">
+        <header class="header">
+            <h1>Intraday Astro–Gann Swing Tool</h1>
+            <p class="subtitle">Advanced Planetary Transit Analysis for Intraday Trading</p>
+            <div class="planet-icons">
+                <div class="planet-icon planet-sun" title="Sun">☉</div>
+                <div class="planet-icon planet-moon" title="Moon">☽</div>
+                <div class="planet-icon planet-mercury" title="Mercury">☿</div>
+                <div class="planet-icon planet-venus" title="Venus">♀</div>
+                <div class="planet-icon planet-mars" title="Mars">♂</div>
+                <div class="planet-icon planet-jupiter" title="Jupiter">♃</div>
+                <div class="planet-icon planet-saturn" title="Saturn">♄</div>
+            </div>
+        </header>
+
+        <div class="controls-grid">
+            <div class="control-card">
+                <h3><i class="fas fa-calendar-alt"></i> Date & Time Settings</h3>
+                <div class="form-group">
+                    <label for="date">Select Date</label>
+                    <input type="date" id="date" class="form-input" value="2024-08-08">
+                </div>
+                <div class="form-group">
+                    <label for="time">Select Time</label>
+                    <input type="time" id="time" class="form-input" value="09:15">
+                </div>
+                <div class="form-group">
+                    <label for="location">Location</label>
+                    <input type="text" id="location" class="form-input" value="Mumbai, India" placeholder="Enter location">
+                </div>
+            </div>
+
+            <div class="control-card">
+                <h3><i class="fas fa-chart-line"></i> Market Settings</h3>
+                <div class="form-group">
+                    <label for="symbol">Symbol</label>
+                    <input type="text" id="symbol" class="form-input" value="Nifty" placeholder="Enter symbol">
+                </div>
+                <div class="form-group">
+                    <label for="cmp">CMP (Current Market Price)</label>
+                    <input type="number" id="cmp" class="form-input" value="24574.00" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Market Type</label>
+                    <div class="radio-group">
+                        <label class="radio-option">
+                            <input type="radio" name="market" value="indian" checked>
+                            <span>Indian Market</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="market" value="global">
+                            <span>Global Market</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-card">
+                <h3><i class="fas fa-cogs"></i> Advanced Settings</h3>
+                <div class="form-group">
+                    <label for="font-size">Table Font Size: <span id="font-size-value">16px</span></label>
+                    <input type="range" id="font-size" class="form-input" min="12" max="24" value="16">
+                </div>
+                <div class="form-group">
+                    <label for="swing-multiplier">Swing Range Multiplier: <span id="swing-value">1.0x</span></label>
+                    <input type="range" id="swing-multiplier" class="form-input" min="0.5" max="3.0" value="1.0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label for="bg-color">Background Color</label>
+                    <input type="color" id="bg-color" class="form-input" value="#e8eaf6">
+                </div>
+            </div>
+        </div>
+
+        <button class="generate-btn" onclick="generateReport()">
+            <i class="fas fa-magic"></i> Generate Astro-Gann Report
+        </button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Calculating planetary positions and market analysis...</p>
+        </div>
+
+        <div class="market-status">
+            <h3><i class="fas fa-clock"></i> Market Status</h3>
+            <p><strong>Indian Market Hours:</strong> 09:15 AM – 03:15 PM IST</p>
+            <p><strong>Global Market Hours:</strong> 05:00 AM – 11:35 PM UTC</p>
+            <p><strong>Current Status:</strong> <span class="status-indicator">Market Open</span></p>
+        </div>
+
+        <div class="important-planet">
+            <h2><i class="fas fa-star"></i> Important Planet for Trading: Jupiter</h2>
+            <p>The ruling planet for Friday is Venus. Pay special attention to its transit and levels during the trading session.</p>
+        </div>
+
+        <div class="results-section">
+            <div class="results-header">
+                <h2 class="results-title"><i class="fas fa-chart-area"></i> Planetary Transit Analysis</h2>
+                <div class="symbol-display">Nifty | CMP: ₹24,574.00</div>
+            </div>
+
+            <div class="transit-grid">
+                <div class="transit-card">
+                    <h4><i class="fas fa-moon"></i> Moon-Rahu Transit</h4>
+                    <p>Moon-Rahu 60°: 11:30 AM</p>
+                    <p>Moon-Rahu 90°: 02:15 PM</p>
+                    <p>Moon-Rahu 120°: 04:45 PM</p>
+                </div>
+                <div class="transit-card">
+                    <h4><i class="fas fa-moon"></i> Moon-Ketu Transit</h4>
+                    <p>Moon-Ketu 60°: 10:45 AM</p>
+                    <p>Moon-Ketu 180°: 01:30 PM</p>
+                    <p>Moon-Ketu 120°: 03:20 PM</p>
+                </div>
+            </div>
+
+            <h3 style="color: var(--primary-blue); margin-bottom: 1.5rem;">
+                <i class="fas fa-table"></i> Intraday Swing Range
+            </h3>
+
+            <div style="overflow-x: auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>CMP</th>
+                            <th>Swing Low</th>
+                            <th>Swing High</th>
+                            <th>Degree Range</th>
+                            <th>Key Planet</th>
+                            <th>Timing (IST)</th>
+                            <th>Transit Nature</th>
+                            <th>Important</th>
+                            <th>Current Transit</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="current-transit-row important-row">
+                            <td>Nifty</td>
+                            <td>₹24,574.00</td>
+                            <td>₹24,450.20</td>
+                            <td>₹24,697.80</td>
+                            <td>118.2°–124.8°</td>
+                            <td>Venus in Swati</td>
+                            <td>09:15 AM – 10:45 AM</td>
+                            <td>Favorable</td>
+                            <td>Yes</td>
+                            <td>Yes</td>
+                        </tr>
+                        <tr class="favorable-row">
+                            <td>Nifty</td>
+                            <td>₹24,574.00</td>
+                            <td>₹24,500.15</td>
+                            <td>₹24,647.85</td>
+                            <td>215.5°–221.1°</td>
+                            <td>Jupiter</td>
+                            <td>11:20 AM – 01:20 PM</td>
+                            <td>Favorable</td>
+                            <td>No</td>
+                            <td>No</td>
+                        </tr>
+                        <tr class="negative-row">
+                            <td>Nifty</td>
+                            <td>₹24,574.00</td>
+                            <td>₹24,525.30</td>
+                            <td>₹24,622.70</td>
+                            <td>95.8°–98.2°</td>
+                            <td>Mars</td>
+                            <td>02:30 PM – 03:15 PM</td>
+                            <td>Negative</td>
+                            <td>No</td>
+                            <td>No</td>
+                        </tr>
+                        <tr>
+                            <td>Nifty</td>
+                            <td>₹24,574.00</td>
+                            <td>₹24,535.40</td>
+                            <td>₹24,612.60</td>
+                            <td>183.7°–186.3°</td>
+                            <td>Moon in Chitra</td>
+                            <td>12:45 PM – 02:15 PM</td>
+                            <td>Neutral</td>
+                            <td>No</td>
+                            <td>No</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="download-section">
+                <button class="download-btn">
+                    <i class="fas fa-file-pdf"></i> Download PDF
+                </button>
+                <button class="download-btn">
+                    <i class="fas fa-file-excel"></i> Download Excel
+                </button>
+                <button class="download-btn">
+                    <i class="fas fa-share-alt"></i> Share Report
+                </button>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>&copy; 2024 Astro-Gann Trading Tool. Combining ancient wisdom with modern market analysis.</p>
+            <p><i class="fas fa-star"></i> May the stars guide your trades <i class="fas fa-star"></i></p>
+        </footer>
+    </div>
+
+    <script>
+        // Font size slider
+        document.getElementById('font-size').addEventListener('input', function() {
+            const value = this.value;
+            document.getElementById('font-size-value').textContent = value + 'px';
+            document.querySelector('.data-table').style.fontSize = value + 'px';
+        });
+
+        // Swing multiplier slider
+        document.getElementById('swing-multiplier').addEventListener('input', function() {
+            const value = this.value;
+            document.getElementById('swing-value').textContent = value + 'x';
+        });
+
+        // Generate report function
+        function generateReport() {
+            const loading = document.getElementById('loading');
+            const generateBtn = document.querySelector('.generate-btn');
+            
+            // Show loading animation
+            loading.style.display = 'block';
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculating...';
+            
+            // Simulate API call
+            setTimeout(() => {
+                loading.style.display = 'none';
+                generateBtn.disabled = false;
+                generateBtn.innerHTML = '<i class="fas fa-magic"></i> Generate Astro-Gann Report';
+                
+                // Show success message
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-success';
+                alert.innerHTML = '<i class="fas fa-check-circle"></i> Report generated successfully!';
+                document.querySelector('.results-section').insertBefore(alert, document.querySelector('.results-section').firstChild);
+                
+                // Remove alert after 3 seconds
+                setTimeout(() => {
+                    alert.remove();
+                }, 3000);
+            }, 2000);
+        }
+
+        // Planet icon hover effects
+        document.querySelectorAll('.planet-icon').forEach(icon => {
+            icon.addEventListener('mouseenter', function() {
+                this.style.transform = 'translateY(-2px) scale(1.1)';
+            });
+            
+            icon.addEventListener('mouseleave', function() {
+                this.style.transform = 'translateY(0) scale(1)';
+            });
+        });
+
+        // Market status update
+        function updateMarketStatus() {
+            const now = new Date();
+            const hour = now.getHours();
+            const minute = now.getMinutes();
+            const timeInMinutes = hour * 60 + minute;
+            
+            const marketOpen = 9 * 60 + 15; // 9:15 AM
+            const marketClose = 15 * 60 + 15; // 3:15 PM
+            
+            const statusIndicator = document.querySelector('.status-indicator');
+            
+            if (timeInMinutes >= marketOpen && timeInMinutes <= marketClose) {
+                statusIndicator.textContent = 'Market Open';
+                statusIndicator.style.color = '#4caf50';
+                statusIndicator.style.fontWeight = 'bold';
+            } else {
+                statusIndicator.textContent = 'Market Closed';
+                statusIndicator.style.color = '#f44336';
+                statusIndicator.style.fontWeight = 'bold';
+            }
+        }
+
+        // Update market status on page load
+        updateMarketStatus();
+        
+        // Update market status every minute
+        setInterval(updateMarketStatus, 60000);
+
+        // Add smooth scrolling for internal links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                generateReport();
+            }
+        });
+    </script>
+</body>
+</html>
