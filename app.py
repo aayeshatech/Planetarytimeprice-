@@ -458,6 +458,11 @@ if generate_report:
     # Create DataFrame
     df = pd.DataFrame(results)
     
+    # Check if DataFrame is empty
+    if df.empty:
+        st.error("No planetary transits within market hours for the selected date and time. Please try a different date or time.")
+        st.stop()  # Stop execution here
+    
     # Display Symbol and CMP above the table
     st.markdown(f'<div class="symbol-cmp">Symbol: {symbol} | CMP: ₹{cmp:.2f}</div>', unsafe_allow_html=True)
     
@@ -594,67 +599,77 @@ if generate_report:
         elements.append(Paragraph(f"Market: {market} ({market_start.strftime('%I:%M %p')} to {market_end.strftime('%I:%M %p')})", styles['Normal']))
         elements.append(Spacer(1, 12))
         
-        # Table content
-        table_data = [list(dataframe.columns)] + dataframe.values.tolist()
-        
-        # Define column widths for better layout
-        colWidths = [
-            1.0 * inch,  # Symbol
-            0.8 * inch,  # CMP
-            1.0 * inch,  # Swing Low
-            1.0 * inch,  # Swing High
-            1.2 * inch,  # Degree Range
-            1.5 * inch,  # Key Planet
-            1.5 * inch,  # Timing
-            1.0 * inch,  # Transit Nature
-            0.8 * inch,  # Important
-            0.8 * inch   # Current Transit
-        ]
-        
-        table = Table(table_data, colWidths=colWidths)
-        
-        # Build style commands
-        style_commands = [
-            ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('FONTSIZE', (0, 0), (-1, -1), font_size/2),  # Convert to points (1px ≈ 0.75pt)
-            # First, set all rows to white
-            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-        ]
-        
-        # Highlight rows based on importance, current transit, and transit nature
-        for i, row in enumerate(table_data[1:], start=1):
-            important = row[-2] == 'Yes'  # Second last column
-            current_transit = row[-1] == 'Yes'  # Last column
-            transit_nature = row[-3]  # Third last column
+        # Table content - only if dataframe is not empty
+        if not dataframe.empty:
+            table_data = [list(dataframe.columns)] + dataframe.values.tolist()
             
-            if important and current_transit:
-                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.orange))
-                style_commands.append(('FONTNAME', (0, i), (-1, i), 'Helvetica-Bold'))
-                style_commands.append(('BOX', (0, i), (-1, i), 2, colors.red))
-            elif current_transit:
-                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.yellow))
-                style_commands.append(('BOX', (0, i), (-1, i), 2, colors.orange))
-            elif important:
-                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
-                style_commands.append(('FONTNAME', (0, i), (-1, i), 'Helvetica-Bold'))
-            elif transit_nature == 'Favorable':
-                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
-                style_commands.append(('LINEBEFORE', (0, i), (-1, i), 4, colors.green))
-            elif transit_nature == 'Negative':
-                style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.pink))
-                style_commands.append(('LINEBEFORE', (0, i), (-1, i), 4, colors.red))
-        
-        table.setStyle(TableStyle(style_commands))
-        elements.append(table)
+            # Define column widths for better layout
+            colWidths = [
+                1.0 * inch,  # Symbol
+                0.8 * inch,  # CMP
+                1.0 * inch,  # Swing Low
+                1.0 * inch,  # Swing High
+                1.2 * inch,  # Degree Range
+                1.5 * inch,  # Key Planet
+                1.5 * inch,  # Timing
+                1.0 * inch,  # Transit Nature
+                0.8 * inch,  # Important
+                0.8 * inch   # Current Transit
+            ]
+            
+            table = Table(table_data, colWidths=colWidths)
+            
+            # Build style commands
+            style_commands = [
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('FONTSIZE', (0, 0), (-1, -1), font_size/2),  # Convert to points (1px ≈ 0.75pt)
+                # First, set all rows to white
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ]
+            
+            # Highlight rows based on importance, current transit, and transit nature
+            for i, row in enumerate(table_data[1:], start=1):
+                important = row[-2] == 'Yes'  # Second last column
+                current_transit = row[-1] == 'Yes'  # Last column
+                transit_nature = row[-3]  # Third last column
+                
+                if important and current_transit:
+                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.orange))
+                    style_commands.append(('FONTNAME', (0, i), (-1, i), 'Helvetica-Bold'))
+                    style_commands.append(('BOX', (0, i), (-1, i), 2, colors.red))
+                elif current_transit:
+                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.yellow))
+                    style_commands.append(('BOX', (0, i), (-1, i), 2, colors.orange))
+                elif important:
+                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
+                    style_commands.append(('FONTNAME', (0, i), (-1, i), 'Helvetica-Bold'))
+                elif transit_nature == 'Favorable':
+                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.lightgreen))
+                    style_commands.append(('LINEBEFORE', (0, i), (-1, i), 4, colors.green))
+                elif transit_nature == 'Negative':
+                    style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.pink))
+                    style_commands.append(('LINEBEFORE', (0, i), (-1, i), 4, colors.red))
+            
+            table.setStyle(TableStyle(style_commands))
+            elements.append(table)
+        else:
+            # Add a message when there's no data
+            no_data_style = ParagraphStyle(
+                name='NoData',
+                parent=styles['Normal'],
+                textColor=colors.red,
+                alignment=1  # Center alignment
+            )
+            elements.append(Paragraph("No planetary transits within market hours for the selected date and time.", no_data_style))
         
         doc.build(elements)
         buffer.seek(0)
         return buffer
-
+    
     # Download as PDF
     pdf_buffer = generate_pdf(df)
     st.download_button(
@@ -663,7 +678,7 @@ if generate_report:
         file_name=f"astro_gann_report_{date_input.strftime('%Y-%m-%d')}.pdf",
         mime="application/pdf"
     )
-
+    
     # Download as Excel
     excel_buffer = BytesIO()
     df.to_excel(excel_buffer, index=False, engine='openpyxl')
