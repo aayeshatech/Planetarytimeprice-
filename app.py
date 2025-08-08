@@ -98,6 +98,20 @@ st.markdown("""
         margin-bottom: 1rem;
         border: 1px solid #e0e0e0;
     }
+    .warning-message {
+        background-color: #fff3cd;
+        border-left: 5px solid #ffc107;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    .error-message {
+        background-color: #f8d7da;
+        border-left: 5px solid #dc3545;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -389,13 +403,34 @@ def calculate_timing(dt, planet):
     }
     
     duration = base_duration.get(planet, 60)
-    start_time = dt - timedelta(minutes=duration//2)
-    end_time = dt + timedelta(minutes=duration//2)
+    
+    # If the selected time is outside market hours, adjust to the nearest market hour
+    if market == "Indian Market":
+        if dt.time() < market_start:
+            center_time = datetime.combine(dt.date(), market_start)
+        elif dt.time() > market_end:
+            center_time = datetime.combine(dt.date(), market_end)
+        else:
+            center_time = dt
+    else:
+        center_time = dt
+    
+    start_time = center_time - timedelta(minutes=duration//2)
+    end_time = center_time + timedelta(minutes=duration//2)
     
     return start_time, end_time
 
 # Generate report only when button is clicked
 if generate_report:
+    # Check if the selected date is a weekend (for Indian Market)
+    if market == "Indian Market" and date_input.weekday() >= 5:  # 5=Saturday, 6=Sunday
+        st.markdown('<div class="error-message"><strong>Market Closed</strong><br>The selected date is a weekend. Indian Market is closed on Saturdays and Sundays. Please select a weekday.</div>', unsafe_allow_html=True)
+        st.stop()
+    
+    # Check if the selected time is outside market hours (for Indian Market)
+    if market == "Indian Market" and not is_within_market_hours(time_input):
+        st.markdown(f'<div class="warning-message"><strong>Outside Market Hours</strong><br>The selected time is outside Indian Market hours ({market_start.strftime("%I:%M %p")} to {market_end.strftime("%I:%M %p")}). The report will show transits during market hours only.</div>', unsafe_allow_html=True)
+    
     # Get planetary positions
     planetary_positions = get_planetary_positions(dt)
     
@@ -460,7 +495,10 @@ if generate_report:
     
     # Check if DataFrame is empty
     if df.empty:
-        st.error("No planetary transits within market hours for the selected date and time. Please try a different date or time.")
+        if market == "Indian Market":
+            st.markdown('<div class="error-message"><strong>No Planetary Transits During Market Hours</strong><br>There are no planetary transits within market hours for the selected date. This could be due to:<ul><li>The selected date is a market holiday</li><li>All planetary transits fall outside market hours</li></ul>Please try a different date.</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="error-message"><strong>No Planetary Transits Found</strong><br>No planetary transits were found for the selected date and time. Please try a different date or time.</div>', unsafe_allow_html=True)
         st.stop()  # Stop execution here
     
     # Display Symbol and CMP above the table
