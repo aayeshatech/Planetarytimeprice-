@@ -25,21 +25,21 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
     :root {
-        --primary-dark: #0a0e27;
-        --primary-blue: #1a237e;
-        --secondary-blue: #283593;
-        --accent-purple: #3f51b5;
-        --light-blue: #e8eaf6;
-        --card-bg: #c5cae9;
+        --primary-dark: #2c3e50;
+        --primary-blue: #4a90e2;
+        --secondary-blue: #5dade2;
+        --accent-purple: #6c5ce7;
+        --light-blue: #f0f4f8;
+        --card-bg: #e3f2fd;
         --gold: #ffd700;
         --silver: #c0c0c0;
         --success: #4caf50;
         --error: #f44336;
         --warning: #ff9800;
-        --gradient-cosmic: linear-gradient(135deg, #0a0e27 0%, #1a237e 50%, #283593 100%);
-        --gradient-card: linear-gradient(145deg, #ffffff 0%, #f8f9ff 100%);
-        --shadow-primary: 0 8px 32px rgba(26, 35, 126, 0.2);
-        --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.1);
+        --gradient-cosmic: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 30%, #90caf9 60%, #64b5f6 100%);
+        --gradient-card: linear-gradient(145deg, #ffffff 0%, #f8fbff 100%);
+        --shadow-primary: 0 8px 32px rgba(74, 144, 226, 0.15);
+        --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.08);
         --border-radius: 16px;
         --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
@@ -58,9 +58,9 @@ st.markdown("""
         width: 100%;
         height: 100%;
         background: 
-            radial-gradient(circle at 20% 50%, rgba(255, 215, 0, 0.1) 0%, transparent 50%),
-            radial-gradient(circle at 80% 20%, rgba(63, 81, 181, 0.1) 0%, transparent 50%),
-            radial-gradient(circle at 40% 80%, rgba(26, 35, 126, 0.1) 0%, transparent 50%);
+            radial-gradient(circle at 20% 50%, rgba(255, 215, 0, 0.08) 0%, transparent 50%),
+            radial-gradient(circle at 80% 20%, rgba(108, 92, 231, 0.08) 0%, transparent 50%),
+            radial-gradient(circle at 40% 80%, rgba(74, 144, 226, 0.08) 0%, transparent 50%);
         pointer-events: none;
         z-index: -1;
     }
@@ -68,7 +68,7 @@ st.markdown("""
     /* Main Header */
     .main-header {
         font-size: 3.5rem;
-        background: linear-gradient(135deg, #ffd700, #ffffff, #c0c0c0);
+        background: linear-gradient(135deg, #2c3e50, #4a90e2, #6c5ce7);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -76,17 +76,17 @@ st.markdown("""
         margin-bottom: 2rem;
         font-weight: 700;
         letter-spacing: -0.02em;
-        text-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        text-shadow: 0 0 20px rgba(74, 144, 226, 0.3);
     }
     
     .sub-header {
         font-size: 1.8rem;
-        color: white;
+        color: #2c3e50;
         margin-top: 2rem;
         margin-bottom: 1rem;
         font-weight: 600;
         text-align: center;
-        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
 
     /* Planet Icons */
@@ -204,7 +204,7 @@ st.markdown("""
     }
 
     .dataframe thead tr th {
-        background: var(--gradient-cosmic) !important;
+        background: linear-gradient(135deg, #4a90e2, #5dade2) !important;
         color: white !important;
         font-weight: 600 !important;
         text-transform: uppercase !important;
@@ -290,7 +290,7 @@ st.markdown("""
 
     /* Button Styles */
     .stButton > button {
-        background: var(--gradient-cosmic) !important;
+        background: linear-gradient(135deg, #4a90e2, #5dade2) !important;
         color: white !important;
         border: none !important;
         border-radius: 12px !important;
@@ -303,13 +303,13 @@ st.markdown("""
 
     .stButton > button:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 8px 25px rgba(26, 35, 126, 0.3) !important;
+        box-shadow: 0 8px 25px rgba(74, 144, 226, 0.3) !important;
     }
 
     .stDownloadButton > button {
         background: rgba(255, 255, 255, 0.9) !important;
-        border: 2px solid var(--accent-purple) !important;
-        color: var(--accent-purple) !important;
+        border: 2px solid #4a90e2 !important;
+        color: #4a90e2 !important;
         border-radius: 12px !important;
         padding: 0.75rem 1.5rem !important;
         font-weight: 600 !important;
@@ -317,7 +317,7 @@ st.markdown("""
     }
 
     .stDownloadButton > button:hover {
-        background: var(--accent-purple) !important;
+        background: #4a90e2 !important;
         color: white !important;
         transform: translateY(-2px) !important;
     }
@@ -329,7 +329,7 @@ st.markdown("""
     .stDateInput > div > div > input,
     .stTimeInput > div > div > input {
         border-radius: 12px !important;
-        border: 2px solid rgba(63, 81, 181, 0.2) !important;
+        border: 2px solid rgba(74, 144, 226, 0.2) !important;
         transition: var(--transition) !important;
     }
 
@@ -338,13 +338,13 @@ st.markdown("""
     .stTextInput > div > div > input:focus,
     .stDateInput > div > div > input:focus,
     .stTimeInput > div > div > input:focus {
-        border-color: var(--accent-purple) !important;
-        box-shadow: 0 0 0 3px rgba(63, 81, 181, 0.1) !important;
+        border-color: #4a90e2 !important;
+        box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1) !important;
     }
 
     /* Slider Styles */
     .stSlider > div > div > div {
-        background: var(--gradient-cosmic) !important;
+        background: linear-gradient(135deg, #4a90e2, #5dade2) !important;
     }
 
     /* Hide Streamlit branding */
@@ -839,7 +839,7 @@ if generate_report:
 
 # Footer
 st.markdown('''
-<div style="text-align: center; margin-top: 3rem; padding: 2rem; color: rgba(255, 255, 255, 0.8);">
+<div style="text-align: center; margin-top: 3rem; padding: 2rem; color: #2c3e50;">
     <p>&copy; 2024 Astro-Gann Trading Tool. Combining ancient wisdom with modern market analysis.</p>
     <p>🌟 May the stars guide your trades 🌟</p>
 </div>
